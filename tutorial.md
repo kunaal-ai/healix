@@ -1,37 +1,49 @@
-# AI Quality Engine: Milestone 1 Setup
+# Healix Framework: AI-Powered Test Self-Healing
 
-This project demonstrates **Local Self-Healing Tests** with **Enterprise-Grade Privacy**. It uses a local LLM to fix broken CSS selectors without exposing sensitive data.
+Healix is a reusable framework designed to make automated tests resilient to UI changes using local AI.
 
-## 1. Prerequisites
-Ensure you have [Ollama](https://ollama.com) installed and running on your machine.
+## 🚀 Milestone 1: Local Secure Healing
+Demonstrates autonomous healing with **Enterprise-Grade Privacy**.
+- **DOM Scrubbing:** Strips noise (scripts, styles) to minimize token usage.
+- **PII Masking:** Replaces sensitive text with `[MASKED]` before local inference.
 
-## 2. Environment Setup
-Run these commands in your terminal to install dependencies and the local AI model.
-
-```bash
-# 1. Install Python dependencies
-pip install playwright beautifulsoup4 requests
-
-# 2. Install Playwright browser binaries
-playwright install chromium
-
-# 3. Pull the local AI model (Requires Ollama running)
-ollama pull qwen2.5-coder:7b
-```
-
-## 3. Run the Demo
-Execute the script to see the self-healing logic in action.
-
+**Run Milestone 1:**
 ```bash
 python milestone_1.py
 ```
 
-## 4. What to Observe
-The script simulates a broken test case where an element's ID has changed. 
+## 🧠 Milestone 2: Reusable Framework & Caching
+Transforms the script into a reusable engine with persistence.
+- **Persistence:** Successful fixes are stored in `healix_cache.json`.
+- **Performance:** Subsequent failures for the same element are healed instantly from the cache, bypassing the LLM.
+- **Framework Ready:** The `Healix` class is separated into `healix.py` for easy integration.
 
-### The "Enterprise Security" Proof
-Watch the terminal output for **"Initiating Local Secure Healing"**. Behind the scenes:
-1. **DOM Scrubbing:** The script uses `BeautifulSoup` to strip all `<script>` and `<style>` tags.
-2. **PII Masking:** It replaces all text in non-structural elements with `[SENSITIVE_DATA_MASKED]`.
-3. **Local Inference:** The structural "skeleton" of the page is sent to your **local** Ollama instance. No data ever leaves your machine.
-4. **Healing:** The AI identifies the correct selector (`#username`) based on context and continues the test.
+**Run Milestone 2:**
+```bash
+python milestone_2.py
+```
+
+---
+
+## 🛠️ Setup Instructions
+
+### 1. Prerequisites
+Install [Ollama](https://ollama.com) and ensure it is running.
+
+### 2. Installation
+```bash
+# Install dependencies
+pip install playwright beautifulsoup4 requests
+
+# Install browser binaries
+playwright install chromium
+
+# Pull the AI model
+ollama pull qwen2.5-coder:7b
+```
+
+## 🔍 What to Observe in Milestone 2
+When you run `milestone_2.py`, observe the terminal:
+1. **Run 1:** You'll see the AI being invoked to find a fix (takes a few seconds).
+2. **Run 2:** You'll see **"Retrieved from Local Healing Cache"**. This happens nearly instantly because the fix was persisted to `healix_cache.json`.
+3. **Persistence:** Check your project folder for `healix_cache.json` after the run to see the stored selector mapping.
