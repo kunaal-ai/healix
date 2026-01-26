@@ -20,6 +20,52 @@ Healix uses an **agentic loop** to automatically detect and fix selector failure
 4. **Verify** - Confirm the action succeeded
 5. **Learn** - Cache successful fixes for future use
 
+### Operational Workflow
+
+```mermaid
+graph TD
+    Start[Test Fail] --> CheckCache{Check Cache}
+    
+    CheckCache -->|Fix Found| ApplyCacheFix[Apply Cached Fix]
+    CheckCache -->|No Fix Found| CleanDOM[Clean DOM State]
+    
+    ApplyCacheFix --> RetryCache[Re-run Test]
+    RetryCache --> TestPassCache{Test Pass?}
+    
+    TestPassCache -->|Yes| SuccessCache[Success: Cache Fix Worked]
+    TestPassCache -->|No| CleanDOM
+    
+    CleanDOM --> AskOllama[Ask Ollama AI]
+    AskOllama --> AnalyzeResponse[Analyze Response<br/>Extract Fix & Confidence Score]
+    
+    AnalyzeResponse --> ConfidenceCheck{Confidence > Threshold?}
+    
+    ConfidenceCheck -->|High| ApplyAIFix[Apply AI-Suggested Fix]
+    ConfidenceCheck -->|Low| ManualReview[Flag for Manual Review]
+    
+    ApplyAIFix --> RetryAI[Re-run Test]
+    RetryAI --> TestPassAI{Test Pass?}
+    
+    TestPassAI -->|Yes| GenerateFeedback[Generate Feedback JSON]
+    TestPassAI -->|No| CleanDOM
+    
+    SuccessCache --> GenerateFeedback
+    ManualReview --> GenerateFeedback
+    
+    GenerateFeedback --> End[Send to Developer]
+    
+    %% Style Definitions
+    classDef startEnd fill:#f9f,stroke:#333
+    classDef process fill:#bbf,stroke:#333
+    classDef decision fill:#f96,stroke:#333
+    classDef data fill:#9f9,stroke:#333
+    
+    class Start,End startEnd
+    class CheckCache,TestPassCache,ConfidenceCheck,TestPassAI decision
+    class ApplyCacheFix,CleanDOM,AskOllama,AnalyzeResponse,ApplyAIFix,RetryCache,RetryAI process
+    class GenerateFeedback,ManualReview,SuccessCache data
+```
+
 ## 🏗️ Architecture
 
 ```
