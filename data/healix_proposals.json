@@ -1,0 +1,9 @@
+[
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#invalid-username-field",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  }
+]
