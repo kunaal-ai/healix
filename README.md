@@ -22,8 +22,6 @@ Healix uses an **agentic loop** to automatically detect and fix selector failure
 
 ### Operational Workflow
 
-> 🔗 **[View Interactive Live Workflow](https://kunaal-ai.github.io/healix/)** (Zoomable & Panning)
-
 ```mermaid
 flowchart TD
     subgraph Execution["Test Execution Layer"]
