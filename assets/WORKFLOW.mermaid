@@ -1,41 +1,65 @@
-graph TD
-    Start[Test Fail] --> CheckCache{Check Cache}
+flowchart TD
+    subgraph Execution["Test Execution Layer"]
+        Start(["💥 Test Failure Detected"])
+        RetryCache(["♻️ Re-run with Cache"])
+        RetryAI(["⚡ Re-run with AI Fix"])
+    end
+
+    subgraph Persistence["Persistence Layer"]
+        CheckCache{"🧠 Check Cache"}
+        ApplyCache["📥 Apply Cached Selector"]
+        UpdateCache[("💾 Update Cache")]
+    end
+
+    subgraph Intelligence["AI Intelligence Layer"]
+        CleanDOM["🧼 DOM Scrubbing & Minification"]
+        AskOllama["🤖 Query Ollama (qwen2.5-coder)"]
+        Analyze["📊 Confidence Scoring"]
+    end
+
+    subgraph Feedback["Reporting Layer"]
+        Success(["✅ Healing Successful"])
+        Manual(["⚠️ Manual Review Required"])
+        Proposal[("📝 Log Code Proposal")]
+    end
+
+    %% Flow Logic
+    Start --> CheckCache
     
-    CheckCache -->|Fix Found| ApplyCacheFix[Apply Cached Fix]
-    CheckCache -->|No Fix Found| CleanDOM[Clean DOM State]
+    CheckCache -- "Hit" --> ApplyCache
+    ApplyCache --> RetryCache
     
-    ApplyCacheFix --> RetryCache[Re-run Test]
-    RetryCache --> TestPassCache{Test Pass?}
+    CheckCache -- "Miss" --> CleanDOM
     
-    TestPassCache -->|Yes| SuccessCache[Success: Cache Fix Worked]
-    TestPassCache -->|No| CleanDOM
+    RetryCache -- "Success" --> Success
+    RetryCache -- "Fail" --> CleanDOM
     
-    CleanDOM --> AskOllama[Ask Ollama AI]
-    AskOllama --> AnalyzeResponse[Analyze Response<br/>Extract Fix & Confidence Score]
+    CleanDOM --> AskOllama
+    AskOllama --> Analyze
     
-    AnalyzeResponse --> ConfidenceCheck{Confidence > Threshold?}
+    Analyze -- "High Confidence" --> RetryAI
+    Analyze -- "Low Confidence" --> Manual
     
-    ConfidenceCheck -->|High| ApplyAIFix[Apply AI-Suggested Fix]
-    ConfidenceCheck -->|Low| ManualReview[Flag for Manual Review]
+    RetryAI -- "Success" --> UpdateCache
+    UpdateCache --> Success
     
-    ApplyAIFix --> RetryAI[Re-run Test]
-    RetryAI --> TestPassAI{Test Pass?}
+    RetryAI -- "Fail" --> Manual
     
-    TestPassAI -->|Yes| GenerateFeedback[Generate Feedback JSON]
-    TestPassAI -->|No| CleanDOM
-    
-    SuccessCache --> GenerateFeedback
-    ManualReview --> GenerateFeedback
-    
-    GenerateFeedback --> End[Send to Developer]
-    
-    %% Style Definitions
-    classDef startEnd fill:#f9f,stroke:#333
-    classDef process fill:#bbf,stroke:#333
-    classDef decision fill:#f96,stroke:#333
-    classDef data fill:#9f9,stroke:#333
-    
+    Success --> Proposal
+    Manual --> Proposal
+    Proposal --> End(["🏁 Action Complete"])
+
+    %% Premium Styling
+    classDef startEnd fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#1e293b
+    classDef intelligence fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a
+    classDef persistence fill:#ecfdf5,stroke:#10b981,stroke-width:2px,color:#064e3b
+    classDef execution fill:#fff7ed,stroke:#f59e0b,stroke-width:2px,color:#7c2d12
+    classDef feedback fill:#faf5ff,stroke:#a855f7,stroke-width:2px,color:#581c87
+    classDef decision fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray: 5 5
+
     class Start,End startEnd
-    class CheckCache,TestPassCache,ConfidenceCheck,TestPassAI decision
-    class ApplyCacheFix,CleanDOM,AskOllama,AnalyzeResponse,ApplyAIFix,RetryCache,RetryAI process
-    class GenerateFeedback,ManualReview,SuccessCache data
+    class CleanDOM,AskOllama,Analyze intelligence
+    class CheckCache,ApplyCache,UpdateCache persistence
+    class RetryCache,RetryAI execution
+    class Success,Manual,Proposal,GenerateFeedback feedback
+    class CheckCache,Analyze decision
