@@ -63,15 +63,20 @@
 
         #diagram-container {
             flex-grow: 1;
-            width: 100%;
+            width: 100vw;
+            height: calc(100vh - 80px);
+            /* Adjust based on header height */
             cursor: grab;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: block;
+            position: relative;
+            background: #0b1222;
+            /* Slightly darker for depth */
         }
 
-        #diagram-container:active {
-            cursor: grabbing;
+        #diagram-container svg {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: none !important;
         }
 
         .mermaid {
@@ -189,20 +194,19 @@ flowchart TD
                 // 3. Configure Interactivity (Pan/Zoom)
                 const svgElement = document.querySelector('#diagram-container svg');
                 if (svgElement) {
-                    // Force SVG to fill container
-                    svgElement.setAttribute('width', '100%');
-                    svgElement.setAttribute('height', '100%');
+                    const panZoom = svgPanZoom(svgElement, {
+                        zoomEnabled: true,
+                        controlIconsEnabled: true,
+                        fit: true,
+                        center: true,
+                        minZoom: 0.1,
+                        maxZoom: 10
+                    });
 
-                    if (typeof svgPanZoom !== 'undefined') {
-                        svgPanZoom(svgElement, {
-                            zoomEnabled: true,
-                            controlIconsEnabled: true,
-                            fit: true,
-                            center: true,
-                            minZoom: 0.1,
-                            maxZoom: 10
-                        });
-                    }
+                    // Force initial fit and center
+                    panZoom.resize();
+                    panZoom.fit();
+                    panZoom.center();
 
                     // 4. Reveal the UI
                     document.getElementById('loader').style.display = 'none';
