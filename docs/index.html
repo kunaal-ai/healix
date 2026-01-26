@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Healix | Interactive Workflow</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-color: #f8fafc;
+            --accent-color: #3b82f6;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            padding: 1.5rem 2rem;
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(8px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logo span {
+            color: var(--accent-color);
+        }
+
+        .controls {
+            padding: 0.5rem 1rem;
+            background: var(--card-bg);
+            border-radius: 8px;
+            font-size: 0.875rem;
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        #diagram-container {
+            flex-grow: 1;
+            width: 100%;
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #diagram-container:active {
+            cursor: grabbing;
+        }
+
+        .mermaid {
+            visibility: hidden; /* Hidden until rendered */
+        }
+
+        /* Overlay for Loading */
+        #loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1rem;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">Healix<span>Engine</span></div>
+        <div class="controls">🖱️ Scroll to Zoom | Click & Drag to Pan</div>
+    </header>
+
+    <div id="loader">Initializing Engine Intelligence...</div>
+
+    <div id="diagram-container">
+        <pre class="mermaid">
+flowchart TD
+    subgraph Execution["Test Execution Layer"]
+        Start(["💥 Test Failure Detected"])
+        RetryCache(["♻️ Re-run with Cache"])
+        RetryAI(["⚡ Re-run with AI Fix"])
+    end
+
+    subgraph Persistence["Persistence Layer"]
+        CheckCache{"🧠 Check Cache"}
+        ApplyCache["📥 Apply Cached Selector"]
+        UpdateCache[("💾 Update Cache")]
+    end
+
+    subgraph Intelligence["AI Intelligence Layer"]
+        CleanDOM["🧼 DOM Scrubbing & Minification"]
+        AskOllama["🤖 Query Ollama (qwen2.5-coder)"]
+        Analyze["📊 Confidence Scoring"]
+    end
+
+    subgraph Feedback["Reporting Layer"]
+        Success(["✅ Healing Successful"])
+        Manual(["⚠️ Manual Review Required"])
+        Proposal[("📝 Log Code Proposal")]
+    end
+
+    %% Flow Logic
+    Start --> CheckCache
+    
+    CheckCache -- "Hit" --> ApplyCache
+    ApplyCache --> RetryCache
+    
+    CheckCache -- "Miss" --> CleanDOM
+    
+    RetryCache -- "Success" --> Success
+    RetryCache -- "Fail" --> CleanDOM
+    
+    CleanDOM --> AskOllama
+    AskOllama --> Analyze
+    
+    Analyze -- "High Confidence" --> RetryAI
+    Analyze -- "Low Confidence" --> Manual
+    
+    RetryAI -- "Success" --> UpdateCache
+    UpdateCache --> Success
+    
+    RetryAI -- "Fail" --> Manual
+    
+    Success --> Proposal
+    Manual --> Proposal
+    Proposal --> End(["🏁 Action Complete"])
+
+    %% Premium Styling
+    classDef startEnd fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#1e293b
+    classDef intelligence fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a
+    classDef persistence fill:#ecfdf5,stroke:#10b981,stroke-width:2px,color:#064e3b
+    classDef execution fill:#fff7ed,stroke:#f59e0b,stroke-width:2px,color:#7c2d12
+    classDef feedback fill:#faf5ff,stroke:#a855f7,stroke-width:2px,color:#581c87
+    classDef decision fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray: 5 5
+
+    class Start,End startEnd
+    class CleanDOM,AskOllama,Analyze intelligence
+    class CheckCache,ApplyCache,UpdateCache persistence
+    class RetryCache,RetryAI execution
+    class Success,Manual,Proposal,GenerateFeedback feedback
+    class CheckCache,Analyze decision
+        </pre>
+    </div>
+
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: 'dark',
+            securityLevel: 'loose',
+            flowchart: { useMaxWidth: false, htmlLabels: true }
+        });
+
+        // Add pan-zoom after mermaid finishes rendering
+        const callback = function() {
+            const svgElement = document.querySelector('#diagram-container svg');
+            if (svgElement) {
+                svgElement.setAttribute('width', '100%');
+                svgElement.setAttribute('height', '100%');
+                
+                svgPanZoom(svgElement, {
+                    zoomEnabled: true,
+                    controlIconsEnabled: true,
+                    fit: true,
+                    center: true,
+                    minZoom: 0.1,
+                    maxZoom: 10
+                });
+                
+                document.getElementById('loader').style.display = 'none';
+                document.querySelector('.mermaid').style.visibility = 'visible';
+            }
+        };
+
+        // MutationObserver to detect when Mermaid is done
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.addedNodes.length && mutation.addedNodes[0].tagName === 'svg') {
+                    callback();
+                    observer.disconnect();
+                }
+            });
+        });
+
+        observer.observe(document.getElementById('diagram-container'), { childList: true });
+    </script>
+</body>
+</html>
