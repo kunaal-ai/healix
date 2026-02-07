@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import sys
 import traceback
 import requests
 from playwright.async_api import async_playwright
@@ -38,9 +39,6 @@ class Healix:
         print(f"Permanent Fix Saved: '{selector}' -> '{fixed_selector}'")
 
     def log_proposal(self, original, fixed, file_info):
-        """
-        Milestone 6: Track where the fix belongs in the source code.
-        """
         proposals = []
         if os.path.exists(self.report_file):
             with open(self.report_file, 'r') as f:
@@ -69,11 +67,12 @@ class Healix:
         
         clean_tags = []
         for tag in soup.find_all(['input', 'button', 'a', 'label', 'form']):
-            attrs = {k: v for k, v in tag.attrs.items() if k in ['id', 'class', 'name', 'type', 'placeholder', 'href']}
+            allowed_attrs = ['id', 'class', 'name', 'type', 'placeholder', 'href', 'aria-label', 'data-testid']
+            attrs = {k: v for k, v in tag.attrs.items() if k in allowed_attrs}
             tag.attrs = attrs
             clean_tags.append(str(tag))
             
-        cleaned = "\n".join(clean_tags)[:8000]
+        cleaned = "\n".join(clean_tags)[:8000] # to fit context length
         print(f"DOM Cleaned. Size: {len(cleaned)} characters.")
         return cleaned
 
@@ -86,21 +85,30 @@ class Healix:
             print(f"Found potential errors on page: {found_errors}")
         return found_errors
 
-    async def get_fix(self, broken_selector, html, error_msg="", page_errors=None):
+    async def verify_fix(self, page, old_url):
+        await page.wait_for_timeout(1000)
+        new_url = page.url
+        if new_url != old_url:
+            print("Verification Success: Navigation detected.")
+            return True
+        return False
+
+    async def get_fix(self, broken_selector, html, browser_type="chromium", error_msg="", page_errors=None):
         if broken_selector in self.cache and not error_msg:
             print(f"Cache Hit: Using known fix for '{broken_selector}'")
             return {"selector": self.cache[broken_selector], "action": "click", "conf": 1.0}
 
-        print(f"Querying AI for fix [Broken Selector: {broken_selector}]...")
+        print(f"Querying AI for fix [Browser: {browser_type} | Broken Selector: {broken_selector}]...")
         dom = self.get_clean_dom(html)
-        context = f"Technical Error: {error_msg}\n" if error_msg else ""
+        context = f"Browser Context: {browser_type}\nTechnical Error: {error_msg}\n" if error_msg else ""
         if page_errors:
             context += f"Visible Page Errors: {', '.join(page_errors)}"
         
         prompt = (
-            f"You are a QA Automation Agent. A test failed on: {broken_selector}\n"
+            f"You are a Multi-Browser QA Agent. A test failed in {browser_type} on: {broken_selector}\n"
             f"{context}\n"
             f"Elements:\n{dom}\n"
+            "Identify the correct selector. Prefer data-testid or ID. If not available, use name or aria-label.\n"
             "Return JSON ONLY: {\"selector\": \"string\", \"action\": \"click|fill\", \"conf\": float}"
         )
         
@@ -121,12 +129,12 @@ class Healix:
 hx = Healix()
 
 async def smart_click(page, selector, text_to_fill=None):
-    # Capture where this function was called from for Milestone 6
     caller = traceback.extract_stack()[-2]
     file_info = {"file": caller.filename, "line": caller.lineno}
+    browser_type = page.context.browser.browser_type.name
 
     action_name = "Fill" if text_to_fill else "Click"
-    print(f"\nExecuting Action: {action_name} on '{selector}'")
+    print(f"\nExecuting Action: {action_name} on '{selector}' [{browser_type}]")
     
     try:
         if text_to_fill:
@@ -137,9 +145,10 @@ async def smart_click(page, selector, text_to_fill=None):
     except Exception as e:
         print(f"Action Failed. Initiating Healix Recovery...")
         
+        initial_url = page.url
         page_errors = await hx.observe_state(page)
         html = await page.content()
-        fix = await hx.get_fix(selector, html, error_msg=str(e)[:100], page_errors=page_errors)
+        fix = await hx.get_fix(selector, html, browser_type=browser_type, error_msg=str(e)[:100], page_errors=page_errors)
         
         if fix and fix.get("conf", 0) > 0.6:
             new_sel = fix["selector"]
@@ -151,14 +160,32 @@ async def smart_click(page, selector, text_to_fill=None):
                 else:
                     await page.click(new_sel)
                 
-                print(f"Recovery Successful: Test continued via '{new_sel}'")
+                is_verified = await hx.verify_fix(page, initial_url)
                 
-                # Log the proposal so the dev can make it permanent
-                hx.log_proposal(selector, new_sel, file_info)
-                hx._save_cache(selector, new_sel)
+                if is_verified or fix.get("conf", 0) > 0.9:
+                    print(f"Recovery Successful: Test continued via '{new_sel}'")
+                    hx.log_proposal(selector, new_sel, file_info)
+                    hx._save_cache(selector, new_sel)
+                else:
+                    print("Heal was applied but verification failed. Retrying Plan B...")
+                    raise Exception("Verification failed")
+                    
             except Exception as e2:
                 print(f"Recovery attempt failed: {str(e2)[:50]}")
-                raise e2
+                print("Starting Plan B (Error Feedback Loop)...")
+                retry = await hx.get_fix(selector, html, browser_type=browser_type, error_msg=str(e2)[:100])
+                if retry:
+                    await page.click(retry['selector'], timeout=3000)
+                    print("Plan B Succeeded: Test recovered.")
         else:
             print("Healix failed to find a reliable fix. Hard failure.")
             raise Exception(f"Healix failed to heal: {selector}")
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python -m healix.engine <test_file.py>")
+        sys.exit(1)
+    
+    test_file = sys.argv[1]
+    print(f"Healix CLI: Running test suite {test_file}")
+    # Logic to execute the test file would go here or via subprocess

@@ -5,5 +5,201 @@
     "original_selector": "#invalid-username-field",
     "suggested_fix": "#username",
     "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 19,
+    "original_selector": "#wrong-pass-id",
+    "suggested_fix": "input[name='password']",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "input[name='username']",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 19,
+    "original_selector": "#wrong-pass-id",
+    "suggested_fix": "#password",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 22,
+    "original_selector": "button.broken-login-btn",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 19,
+    "original_selector": "#wrong-pass-id",
+    "suggested_fix": "#password",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "input[name='username']",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 19,
+    "original_selector": "#wrong-pass-id",
+    "suggested_fix": "#password",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 19,
+    "original_selector": "#wrong-pass-id",
+    "suggested_fix": "#password",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 19,
+    "original_selector": "#wrong-pass-id",
+    "suggested_fix": "#password",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 19,
+    "original_selector": "#wrong-pass-id",
+    "suggested_fix": "#password",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 19,
+    "original_selector": "#wrong-pass-id",
+    "suggested_fix": "#password",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 19,
+    "original_selector": "#wrong-pass-id",
+    "suggested_fix": "#password",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#wrong-user-id",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 22,
+    "original_selector": "button.broken-login-btn",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#invalid-username-field",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#invalid-username-field",
+    "suggested_fix": "#username",
+    "status": "pending_review"
+  },
+  {
+    "file": "/Users/kt/Documents/github.com/healix/tests/integration/test_login.py",
+    "line": 16,
+    "original_selector": "#invalid-username-field",
+    "suggested_fix": "#username",
+    "status": "pending_review"
   }
 ]
