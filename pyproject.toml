@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "healix-ai"
-version = "0.1.1"
+version = "0.1.2"
 description = "An autonomous self-healing agent for Playwright tests with AI-powered Root Cause Analysis."
 readme = "README.md"
 license = "MIT"

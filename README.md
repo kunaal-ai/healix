@@ -2,7 +2,7 @@
 
 **Healix** is an intelligent web automation agent that self-heals broken selectors and adapts to dynamic web pages using AI-powered DOM analysis.
 
-## 🎯 The Problem
+## The Problem
 
 Web automation is fragile. Selectors break when:
 - Developers change class names
@@ -10,42 +10,42 @@ Web automation is fragile. Selectors break when:
 - Content loads dynamically
 - A/B tests alter page layouts
 
-## 🚀 The Solution
+## The Solution
 
 Healix uses an **agentic loop** to automatically detect and fix selector failures:
 
-1. **Observe** - Analyze the current page state and DOM
-2. **Reason** - Use AI to determine the correct selector/action
-3. **Act** - Execute the corrected action
-4. **Verify** - Confirm the action succeeded
-5. **Learn** - Cache successful fixes for future use
+1. **Observe** — Analyze the current page state and DOM
+2. **Reason** — Use AI to determine the correct selector/action
+3. **Act** — Execute the corrected action
+4. **Verify** — Confirm the action succeeded
+5. **Learn** — Cache successful fixes for future use
 
 ### Operational Workflow
 
 ```mermaid
 flowchart TD
     subgraph Execution["Test Execution Layer"]
-        Start(["💥 Test Failure Detected"])
-        RetryCache(["♻️ Re-run with Cache"])
-        RetryAI(["⚡ Re-run with AI Fix"])
+        Start(["Test Failure Detected"])
+        RetryCache(["Re-run with Cache"])
+        RetryAI(["Re-run with AI Fix"])
     end
 
     subgraph Persistence["Persistence Layer"]
-        CheckCache{"🧠 Check Cache"}
-        ApplyCache["📥 Apply Cached Selector"]
-        UpdateCache[("💾 Update Cache")]
+        CheckCache{"Check Cache"}
+        ApplyCache["Apply Cached Selector"]
+        UpdateCache[("Update Cache")]
     end
 
     subgraph Intelligence["AI Intelligence Layer"]
-        CleanDOM["🧼 DOM Scrubbing & Minification"]
-        AskOllama["🤖 Query Ollama (qwen2.5-coder)"]
-        Analyze["📊 Confidence Scoring"]
+        CleanDOM["DOM Scrubbing & Minification"]
+        AskOllama["Query Ollama (qwen2.5-coder)"]
+        Analyze["Confidence Scoring"]
     end
 
     subgraph Feedback["Reporting Layer"]
-        Success(["✅ Healing Successful"])
-        Manual(["⚠️ Manual Review Required"])
-        Proposal[("📝 Log Code Proposal")]
+        Success(["Healing Successful"])
+        Manual(["Manual Review Required"])
+        Proposal[("Log Code Proposal")]
     end
 
     %% Flow Logic
@@ -72,7 +72,7 @@ flowchart TD
     
     Success --> Proposal
     Manual --> Proposal
-    Proposal --> End(["🏁 Action Complete"])
+    Proposal --> End(["Action Complete"])
 
     %% Premium Styling
     classDef startEnd fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#1e293b
@@ -90,7 +90,7 @@ flowchart TD
     class CheckCache,Analyze decision
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 healix/
@@ -118,26 +118,32 @@ healix/
 └── README.md                  # This file
 ```
 
-## 🛠️ Installation
+## Installation
 
 ```bash
-# Clone the repository
-git clone <repository-url>
+pip install healix-ai
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/kunaal-ai/healix.git
 cd healix
+pip install -e .
+```
 
-# Install dependencies
-pip install -r requirements.txt
+Make sure to install Playwright browsers:
 
-# Install Playwright browsers
+```bash
 playwright install chromium
 ```
 
-## 🚦 Quick Start
+## Quick Start
 
 ```python
 import asyncio
 from playwright.async_api import async_playwright
-from healix.engine import smart_click
+from healix import smart_click
 
 async def test_healix_agent():
     async with async_playwright() as p:
@@ -155,7 +161,7 @@ if __name__ == "__main__":
     asyncio.run(test_healix_agent())
 ```
 
-## 🧠 How It Works
+## How It Works
 
 ### DOM Cleaning & Privacy
 - Strips scripts, styles, and heavy elements to save tokens
@@ -172,12 +178,12 @@ if __name__ == "__main__":
 - Gets faster over time as it learns common patterns
 - Maintains context across test runs
 
-## 🔧 Configuration
+## Configuration
 
 Healix uses Ollama for local AI inference:
 
 ```python
-from healix.engine import Healix
+from healix import Healix
 
 # Default model: qwen2.5-coder:7b
 healix = Healix(model="your-preferred-model")
@@ -188,7 +194,7 @@ Make sure Ollama is running:
 ollama serve
 ```
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Run all tests
@@ -201,7 +207,7 @@ pytest tests/ --cov=src/healix --cov-report=html
 pytest tests/integration/
 ```
 
-## 🐳 Docker Support
+## Docker Support
 
 ```bash
 # Build the container
@@ -211,7 +217,7 @@ docker build -t healix .
 docker run healix
 ```
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -219,11 +225,11 @@ docker run healix
 4. Ensure all tests pass
 5. Submit a pull request
 
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE).
 
-## 🔮 Roadmap
+## Roadmap
 
 - [ ] Support for more AI models (OpenAI, Anthropic)
 - [ ] Visual regression testing
