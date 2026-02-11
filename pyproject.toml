@@ -5,14 +5,41 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "healix-ai"
 version = "0.1.0"
-description = "An autonomous self-healing agent for Playwright tests with RCA."
+description = "An autonomous self-healing agent for Playwright tests with AI-powered Root Cause Analysis."
 readme = "README.md"
-requires-python = ">=3.8"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Kunaal Thanik"}
+]
+keywords = ["playwright", "testing", "self-healing", "automation", "ai", "selenium", "qa"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+    "Framework :: Pytest",
+]
 dependencies = [
     "playwright>=1.40.0",
     "beautifulsoup4>=4.12.0",
     "requests>=2.31.0"
 ]
 
+[project.urls]
+Homepage = "https://github.com/kunaal-ai/healix"
+Repository = "https://github.com/kunaal-ai/healix"
+Issues = "https://github.com/kunaal-ai/healix/issues"
+
 [project.scripts]
 healix = "healix.engine:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
