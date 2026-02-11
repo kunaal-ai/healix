@@ -195,44 +195,62 @@ class SmartLocatorProxy:
     def _wrap_action(self, method, name):
         def wrapper(*args, **kwargs):
             try:
-                # Try original action (respecting timeout)
+                # Try original action
                 return method(*args, **kwargs)
             except Exception as e:
-                # Check if it's a timeout/not-found error
-                if "timeout" in str(e).lower() or "not found" in str(e).lower() or "waiting for" in str(e).lower():
-                    print(f"[Healix] Locator '{self._selector}' failed ({name}). Healing...")
-                    hx = _get_healix()
-                    
-                    # Detect if we are in sync or async world
-                    is_async = asyncio.iscoroutinefunction(self._page.content)
-                    
-                    if is_async:
-                        # This proxy is currently optimized for Sync (para-bank use case)
-                        # but we can add async support if needed.
-                        raise e
-                    
-                    # Sync healing flow
-                    html = self._page.content()
-                    browser = self._page.context.browser.browser_type.name
-                    fix = hx.get_fix_sync(self._selector, html, browser=browser, error_msg=str(e)[:100])
-                    
-                    if fix and fix.get("conf", 0) > 0.6:
-                        new_sel = fix["selector"]
-                        print(f"[Healix] Found fix: {new_sel} (conf: {fix['conf']})")
-                        
-                        # Apply fix to cache and log proposal
-                        # We use a dummy file info for now as stack trace in proxies is deep
-                        file_info = {"file": "PageObject", "line": 0}
-                        hx.log_proposal(self._selector, new_sel, file_info, fix.get("explanation"))
-                        hx._save_cache(self._selector, new_sel, browser=browser)
-                        
-                        # Update our internal locator and retry
-                        self._locator = self._page.locator(new_sel)
-                        new_method = getattr(self._locator, name)
-                        print(f"[Healix] Retrying {name} with new selector...")
-                        return new_method(*args, **kwargs)
+                # Check for "not found" or "timeout" errors
+                if any(x in str(e).lower() for x in ["timeout", "not found", "waiting for", "no element"]):
+                    return self._heal_and_retry(name, *args, **kwargs)
                 raise e
+        
+        # Special case: methods that return booleans or numbers (is_visible, count)
+        # These methods often FAIL SILENTLY (returning False) if the selector is wrong.
+        # We want them to trigger healing too!
+        if name in ["is_visible", "is_hidden", "count", "is_enabled", "is_disabled"]:
+            def smart_check_wrapper(*args, **kwargs):
+                val = method(*args, **kwargs)
+                # If it's False or 0, it MIGHT be because the selector is broken.
+                # Do a quick check: does the element exist at all?
+                if (name == "count" and val == 0) or (name == "is_visible" and not val):
+                    # We try to "heal" if we think the selector is truly missing
+                    try:
+                        return self._heal_and_retry(name, *args, **kwargs)
+                    except:
+                        return val # Fallback to original silent failure if healing fails
+                return val
+            return smart_check_wrapper
+            
         return wrapper
+
+    def _heal_and_retry(self, name, *args, **kwargs):
+        """Internal logic to trigger AI healing and retry the action."""
+        print(f"[Healix] Locator '{self._selector}' failed ({name}). Healing...")
+        hx = _get_healix()
+        
+        # Sync/Async detection
+        is_async = asyncio.iscoroutinefunction(self._page.content)
+        if is_async:
+            # Future expansion for async proxy
+            raise RuntimeError("Async proxy not fully implemented yet. Use smart_locator() direct.")
+
+        html = self._page.content()
+        browser = self._page.context.browser.browser_type.name
+        fix = hx.get_fix_sync(self._selector, html, browser=browser, error_msg=f"Element not found during {name}")
+        
+        if fix and fix.get("conf", 0) > 0.6:
+            new_sel = fix["selector"]
+            print(f"[Healix] Found fix: {new_sel} (conf: {fix['conf']})")
+            
+            hx.log_proposal(self._selector, new_sel, {"file": "PageObject", "line": 0}, fix.get("explanation"))
+            hx._save_cache(self._selector, new_sel, browser=browser)
+            
+            # Update internal locator and retry the call
+            self._locator = self._page.locator(new_sel)
+            new_method = getattr(self._locator, name)
+            print(f"[Healix] Retrying {name} with new selector...")
+            return new_method(*args, **kwargs)
+        
+        raise RuntimeError(f"Healix could not find a fix for selector: {self._selector}")
 
 _hx = None
 
