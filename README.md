@@ -3,6 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/healix-ai.svg)](https://pypi.org/project/healix-ai/)
 [![Python](https://img.shields.io/pypi/pyversions/healix-ai.svg)](https://pypi.org/project/healix-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/kunaal-ai/healix/actions/workflows/ci.yml/badge.svg)](https://github.com/kunaal-ai/healix/actions/workflows/ci.yml)
 
 **Healix** is an intelligent web automation agent that self-heals broken selectors and adapts to dynamic web pages using AI-powered DOM analysis.
 
