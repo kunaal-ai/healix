@@ -236,6 +236,43 @@ class LoginPage:
         return await healed_locator(self.page, ".welcome-text")
 ```
 
+### Real-World Scenarios
+
+#### Scenario A: The "No-ID" Heuristic
+**Problem:** You used a role-based locator, but the developer changed the text.
+```python
+# Broken: The button text changed from "Bill Pay" to "Make Payment"
+# self.page.get_by_role("link", name="Bill Pay")
+await smart_click(page, 'internal:role=link[name="Bill Pay"]')
+```
+**Healix logic:** AI sees the `href="/billpay"` and the new "Make Payment" text. It matches them semantically and suggests the update.
+
+#### Scenario B: Cascading Failure (Parent ID Shift)
+**Problem:** A parent container's ID changed, breaking all child selectors.
+```python
+# Broken: #billpayResult was renamed to #payment-status
+# expect(page.locator("#billpayResult h1.title")).to_have_text("Complete")
+locator = await healed_locator(page, "#billpayResult h1.title")
+await expect(locator).to_have_text("Complete")
+```
+**Healix logic:** AI focuses on the target `h1.title`. It finds the title element on the page and identifies its new parent `#payment-status` automatically.
+
+#### Scenario C: Dynamic/Randomized IDs
+**Problem:** Elements have IDs like `btn-12345` that change every deployment.
+```python
+# Broken: ID is now btn-99887
+await smart_click(page, "#btn-12345")
+```
+**Healix logic:** AI ignores the random suffix and matches via class names, labels, and position. It will suggest a more stable selector like `button.primary[type="submit"]`.
+
+### Comparison: When to use what?
+
+| Goal | Use this API | Why? |
+|------|--------------|------|
+| **Click/Type** | `smart_click()` | Handled in one line. Best for actions. |
+| **Verify Text** | `healed_locator()` | Returns a Playwright `Locator` for `expect()`. |
+| **Page Objects**| `healed_locator()` | Allows defining lazy, healed elements inside class methods. |
+
 ## How It Works
 
 ### DOM Cleaning & Privacy
