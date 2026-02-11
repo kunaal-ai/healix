@@ -67,12 +67,12 @@ class TestDomCleaning:
         assert "onclick" not in result
         assert "data-tracking" not in result
 
-    def test_truncates_to_8000_chars(self, healix_instance):
+    def test_truncates_to_15000_chars(self, healix_instance):
         # Generate a large DOM
-        tags = ['<input id="field-{i}" type="text"/>' for i in range(500)]
+        tags = ['<input id="field-{i}" type="text"/>' for i in range(1000)]
         html = "<html>" + "".join(tags) + "</html>"
         result = healix_instance.get_clean_dom(html)
-        assert len(result) <= 8000
+        assert len(result) <= 15000
 
     def test_empty_html(self, healix_instance):
         result = healix_instance.get_clean_dom("<html></html>")
@@ -81,7 +81,9 @@ class TestDomCleaning:
     def test_html_with_no_actionable_elements(self, healix_instance):
         html = "<html><div><p>Just text</p><span>More text</span></div></html>"
         result = healix_instance.get_clean_dom(html)
-        assert result == ""
+        # We now keep text elements for context
+        assert "Just text" in result
+        assert "More text" in result
 
 
 class TestCaching:
