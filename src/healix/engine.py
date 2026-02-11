@@ -166,7 +166,7 @@ def _get_healix():
         _hx = Healix()
     return _hx
 
-async def healed_locator(page, selector, timeout=2000):
+async def smart_locator(page, selector, timeout=2000):
     """
     Returns a self-healing Playwright locator.
     If the initial selector fails, it uses AI to find a successor.

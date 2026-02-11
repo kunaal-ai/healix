@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 from playwright.async_api import async_playwright, expect
-from healix import healed_locator
+from healix import smart_locator
 
 # Mock HTML with "changed" IDs to simulate breakage
 MOCK_HTML = """
@@ -17,7 +17,7 @@ MOCK_HTML = """
 """
 
 async def test_assertion_healing():
-    """Test that healed_locator works with expect() when ID changes."""
+    """Test that smart_locator works with expect() when ID changes."""
     print("\n--- Testing Assertion Healing ---")
     
     async with async_playwright() as p:
@@ -33,14 +33,14 @@ async def test_assertion_healing():
         
         # This would fail: expect(page.locator("#billpayResult h1.title")).to_have_text(...)
         # This should heal:
-        locator = await healed_locator(page, "#billpayResult h1.title")
+        locator = await smart_locator(page, "#billpayResult h1.title")
         await expect(locator).to_have_text("Bill Payment Complete")
         print("✅ Assertion passed!")
         
         # Scenario 2: Assert visibility on a button that changed ID
         # Original: #btn-submit -> New: #btn-submit-v2
         print("[Test] Asserting visibility on broken selector '#btn-submit'...")
-        btn = await healed_locator(page, "#btn-submit")
+        btn = await smart_locator(page, "#btn-submit")
         await expect(btn).to_be_visible()
         print("✅ Visibility check passed!")
 
