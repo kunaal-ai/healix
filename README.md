@@ -5,7 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/kunaal-ai/healix/actions/workflows/ci.yml/badge.svg)](https://github.com/kunaal-ai/healix/actions/workflows/ci.yml)
 
-**Healix** is an intelligent web automation agent that self-heals broken selectors and adapts to dynamic web pages using AI-powered DOM analysis.
+**Healix** is a **privacy-first**, self-healing web automation agent. It fixes broken Playwright selectors using AI — and everything runs **100% on your machine**. No data ever leaves your device.
+
+> Built for teams in **healthcare, fintech, government, and enterprise** where sending DOM data to cloud APIs is not an option.
 
 ## The Problem
 
@@ -17,8 +19,9 @@ Web automation is fragile. Selectors break when:
 
 ## Why Healix?
 
+- **Zero data exposure** — AI runs locally via Ollama. No API keys, no cloud, no telemetry. Your DOM never leaves `localhost`
+- **Compliance ready** — Safe for HIPAA, SOC 2, PCI-DSS, and air-gapped environments
 - **Zero config** — Drop-in replacement for flaky selectors, no test rewrites needed
-- **Runs locally** — Uses Ollama for AI inference, no API keys or cloud dependencies
 - **Browser-aware** — Separate caching per browser engine (Chromium, Firefox, WebKit)
 - **Learns over time** — Caches successful fixes for instant replay on subsequent runs
 - **Transparent** — Logs every decision with confidence scores and reasoning
@@ -187,18 +190,40 @@ if __name__ == "__main__":
 
 ### DOM Cleaning & Privacy
 - Strips scripts, styles, and heavy elements to save tokens
-- Masks PII (Personally Identifiable Information) for privacy
 - Focuses on actionable elements (buttons, links, inputs)
+- All processing happens in-memory on your machine
 
 ### AI-Powered Reasoning
-- Uses local LLM (Ollama) for selector analysis
+- Uses local LLM (Ollama) for selector analysis — **no external API calls**
 - Considers both technical errors and visible page state
 - Returns confidence scores and explanations
 
 ### Persistent Learning
-- Caches successful fixes in `healix_cache.json`
+- Caches successful fixes in `~/.healix/cache.json`
 - Gets faster over time as it learns common patterns
 - Maintains context across test runs
+
+## Privacy & Security
+
+Healix was designed from the ground up for **zero-data-exposure** environments:
+
+| What | Where it runs | Data leaves device? |
+|------|:------------:|:---:|
+| AI inference (Ollama) | `localhost:11434` | No |
+| DOM analysis | In-process Python | No |
+| Selector cache | `~/.healix/` | No |
+| Browser automation | Local Playwright | No |
+
+- **No cloud APIs** — The LLM runs entirely on your hardware via Ollama
+- **No telemetry** — Healix collects zero analytics or usage data
+- **No network calls** — The only outbound traffic is your test navigating to its target URL
+- **No API keys** — Nothing to configure, nothing to leak
+
+This makes Healix safe for:
+- **Healthcare** (HIPAA) — Patient portals, EHR systems
+- **Finance** (SOC 2, PCI-DSS) — Banking apps, payment flows
+- **Government** (FedRAMP) — Internal tools, classified environments
+- **Enterprise** — Any org that prohibits sending DOM/HTML to third-party APIs
 
 ## Configuration
 
