@@ -37,6 +37,7 @@ class Healix:
         Wraps a Playwright page (Sync or Async) to make all its locators self-healing.
         Usage: page = Healix.patch(page)
         """
+        _patch_expect()
         return HealixPageProxy(page)
 
 
@@ -56,6 +57,70 @@ class Healix:
             raise OllamaConnectionError(
                 "Ollama is not running. Start it with: ollama serve"
             )
+
+def _patch_expect():
+    """Monkeypatches playwright.sync_api.expect to support SmartLocatorProxy."""
+    from playwright.sync_api import expect as original_expect
+    import playwright.sync_api
+
+    # Avoid double patching
+    if getattr(playwright.sync_api.expect, "_is_healix_patched", False):
+        return
+
+    def smart_expect(actual, **kwargs):
+        assertion = original_expect(actual, **kwargs)
+        if isinstance(actual, SmartLocatorProxy):
+            return SmartAssertionProxy(assertion, actual)
+        return assertion
+
+    smart_expect._is_healix_patched = True
+    playwright.sync_api.expect = smart_expect
+
+
+class SmartAssertionProxy:
+    """Proxies Playwright assertions to trigger healing on failure."""
+    def __init__(self, assertion, smart_locator):
+        self._assertion = assertion
+        self._smart_locator = smart_locator
+
+    def __getattr__(self, name):
+        attr = getattr(self._assertion, name)
+        if callable(attr):
+            return self._wrap_assertion(attr, name)
+        return attr
+
+    def _wrap_assertion(self, method, name):
+        def wrapper(*args, **kwargs):
+            try:
+                return method(*args, **kwargs)
+            except (AssertionError, TimeoutError) as e:
+                # If assertion fails, try to heal the locator
+                print(f"[Healix] [HEAL] Assertion '{name}' failed. Attempting to heal locator...")
+                try:
+                    # Trigger healing on the locator
+                    # We pass a dummy method to _heal_and_retry to trigger the lookup
+                    self._smart_locator._heal_and_retry(f"expect.{name}")
+                    
+                    # If healing succeeded, the smart locator's internal _locator is updated.
+                    # We need to recreate the assertion with the new locator.
+                    from playwright.sync_api import expect as original_expect
+                    # Access the original expect relative to where we patched it, or just use the internal locator
+                    new_assertion = original_expect(self._smart_locator._locator)
+                    new_method = getattr(new_assertion, name)
+                    
+                    print(f"[Healix] [INFO] Retrying assertion '{name}' with healed locator...")
+                    return new_method(*args, **kwargs)
+                except Exception as heal_error:
+                    # If healing fails or retry fails, raise the original error
+                    print(f"[Healix] [ERROR] Healing failed during assertion: {heal_error}")
+                    raise e
+        return wrapper
+
+class HealixPageProxy:
+    """Proxies a Playwright Page to intercept .locator() calls."""
+    def __init__(self, page):
+        self._page = page
+        print(f"\n[Healix] [INFO] Zero-Refactor healing is ACTIVE.")
 
     def _ensure_dirs(self):
         os.makedirs(self.data_dir, exist_ok=True)
