@@ -76,28 +76,26 @@ Healix uses an **agentic loop** to automatically detect and fix selector failure
 
 ```
 healix/
-├── .github/                   # CI/CD workflows
-│   └── workflows/
-│       └── main.yml           # Automated test runs
-├── src/                       # Source code for the library
-│   └── healix/
-│       ├── __init__.py        # Makes it a package
-│       ├── engine.py          # The core Healix class
-│       └── utilities/         # Helper functions
-│           ├── __init__.py
-│           └── dom_scrubber.py # BeautifulSoup logic
-├── tests/                     # Test suites to verify Healix
+├── .github/workflows/
+│   └── ci.yml                 # CI: tests on Python 3.9/3.11/3.12
+├── src/healix/
+│   ├── __init__.py            # Public API (smart_click, Healix)
+│   ├── engine.py              # Core self-healing logic
+│   └── utilities/
+│       └── dom_scrubber.py    # DOM cleaning helpers
+├── tests/
 │   ├── integration/
-│   │   └── test_login.py      # Demo test case
+│   │   └── test_login.py      # Live browser healing demo
 │   └── unit/
-│       └── test_engine.py     # Testing the AI logic/cleaner
-├── data/                      # Local data storage
-│   └── healix_cache.json      # Persistent cache for fixes
-├── docker/                    # Containerized environments
-│   └── Dockerfile
-├── .gitignore                 # Ignore __pycache__ and local config
-├── requirements.txt           # Dependencies
-└── README.md                  # This file
+│       └── test_engine.py     # 18 unit tests (no Ollama needed)
+├── CHANGELOG.md               # Version history
+├── LICENSE                    # MIT
+├── pyproject.toml             # Package config & dependencies
+└── README.md
+
+~/.healix/                     # Runtime data (created automatically)
+├── cache.json                 # Persistent selector cache
+└── proposals.json             # Logged code fix suggestions
 ```
 
 ## Prerequisites
@@ -136,20 +134,23 @@ import asyncio
 from playwright.async_api import async_playwright
 from healix import smart_click
 
-async def test_healix_agent():
+async def main():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
         page = await browser.new_page()
-        
-        await page.goto("https://example.com")
-        
-        # Healix will automatically fix broken selectors
-        await smart_click(page, "#broken-selector")
-        
+
+        await page.goto("https://the-internet.herokuapp.com/login")
+
+        # These selectors are intentionally wrong — Healix will heal them
+        await smart_click(page, "input#wrong-id", text_to_fill="tomsmith")
+        await smart_click(page, "input[name='bad_field']", text_to_fill="SuperSecretPassword!")
+        await smart_click(page, "button.does-not-exist")
+
+        print("Login healed!" if await page.locator(".flash.success").is_visible() else "Failed")
         await browser.close()
 
 if __name__ == "__main__":
-    asyncio.run(test_healix_agent())
+    asyncio.run(main())
 ```
 
 ## How It Works
@@ -220,15 +221,6 @@ pytest tests/ --cov=src/healix --cov-report=html
 pytest tests/integration/
 ```
 
-## Docker Support
-
-```bash
-# Build the container
-docker build -t healix .
-
-# Run tests in container
-docker run healix
-```
 
 ## Contributing
 

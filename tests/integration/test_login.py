@@ -1,6 +1,6 @@
 import asyncio
 from playwright.async_api import async_playwright
-from healix.engine import smart_click
+from healix import smart_click
 
 async def run_login_test(p, browser_type):
     print(f"\n--- Testing Login Healing on The Internet [{browser_type.name}] ---")

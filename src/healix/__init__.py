@@ -3,7 +3,7 @@
 from healix.engine import smart_click, Healix
 from healix.engine import HealixError, OllamaConnectionError, BrowserNotInstalledError
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __all__ = [
     "smart_click",
     "Healix",

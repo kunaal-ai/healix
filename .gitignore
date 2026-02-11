@@ -125,4 +125,6 @@ dmypy.json
 # Healix specific
 healix_cache.json
 healix_data/
+data/
+dist/
 *.log

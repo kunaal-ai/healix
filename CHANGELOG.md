@@ -5,10 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.2] - 2026-02-11
+## [0.1.3] - 2026-02-11
 
-### Added
-- Friendly error messages when Ollama is not running
+### Changed
+- Replaced Mermaid diagram with text flowchart for better PyPI compatibility
+- Updated README architecture section to match actual project structure
+- Removed Docker section from README (Docker support temporarily removed)
+- Updated Quick Start example to use a real testing URL (`the-internet.herokuapp.com`)
+
+### Fixed
+- Fixed internal import in integration tests to use public API (`from healix import smart_click`)
+- Added `Changelog` URL to PyPI metadata
+- Removed `data/` and `docker/` directories from version control
+- Updated `.gitignore` to verify exclusion of build artifacts and data directories
 - Friendly error messages when Playwright browsers are not installed
 - Custom exception classes: `HealixError`, `OllamaConnectionError`, `BrowserNotInstalledError`
 - Lazy initialization — importing `healix` no longer crashes if Ollama is down
