@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-02-11
+
+### Added
+- **`healed_locator` API**: Support for self-healing in assertions (`expect`) and Page Objects
+- **Semantic DOM Analysis**: AI now sees text content of elements, improving matching for assertions (e.g. `to_have_text`)
+- **Better Prompting**: AI now prioritizes target element type (e.g. finding an `h1` even if the container ID changed)
+
 ## [0.1.3] - 2026-02-11
 
 ### Changed

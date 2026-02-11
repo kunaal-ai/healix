@@ -87,16 +87,31 @@ class Healix:
 
     def get_clean_dom(self, html):
         soup = BeautifulSoup(html, 'html.parser')
-        for tag in soup(["script", "style", "svg", "path", "iframe"]):
+        for tag in soup(["script", "style", "svg", "path", "iframe", "meta", "link", "noscript"]):
             tag.decompose()
         
         clean_tags = []
-        for tag in soup.find_all(['input', 'button', 'a', 'label', 'form']):
-            allowed = ['id', 'class', 'name', 'type', 'placeholder', 'aria-label', 'data-testid']
+        # Semantic elements often used for text assertions
+        text_elements = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'div', 'li', 'td', 'option']
+        # Interactive elements
+        interactive_elements = ['input', 'button', 'a', 'label', 'form', 'select', 'textarea']
+        
+        for tag in soup.find_all(text_elements + interactive_elements):
+            allowed = ['id', 'class', 'name', 'type', 'placeholder', 'aria-label', 'data-testid', 'role', 'value', 'title', 'alt']
+            # Keep only allowed attributes
             tag.attrs = {k: v for k, v in tag.attrs.items() if k in allowed}
-            clean_tags.append(str(tag))
             
-        return "\n".join(clean_tags)[:8000]
+            # For interactive elements, we want the outer HTML (attributes are key)
+            if tag.name in interactive_elements:
+                clean_tags.append(str(tag))
+            # For text elements, we ONLY want them if they satisfy the search or are close to it
+            elif tag.name in text_elements:
+                text = tag.get_text(strip=True)
+                if text: # Only keep text nodes that are not empty
+                    # Simplified representation for token efficiency: <tag attrs...>text</tag>
+                    clean_tags.append(f"<{tag.name} {' '.join(f'{k}={v}' for k,v in tag.attrs.items())}>{text}</{tag.name}>")
+            
+        return "\n".join(clean_tags)[:15000] # Increased token limit for text context
 
     async def get_fix(self, broken_selector, html, browser="chromium", error_msg=""):
         cache_key = f"{browser}::{broken_selector}"
@@ -111,9 +126,10 @@ class Healix:
             f"Here are the ACTUAL elements currently on the page:\n{dom}\n\n"
             "RULES:\n"
             "1. You MUST return a CSS selector that matches one of the elements listed above.\n"
-            "2. Do NOT invent selectors. Do NOT modify the broken selector. Pick from the DOM.\n"
-            "3. Prefer: id > data-testid > name > aria-label > class.\n"
-            "4. Provide a brief Root Cause Analysis explaining why the original selector broke.\n\n"
+            "2. Do NOT invent selectors. Pick from the DOM provided.\n"
+            "3. FOCUS on the target element. If the selector is '#div h1', find the 'h1'.\n"
+            "4. Look for semantic matches: Text content, Aria labels, IDs, Classes.\n"
+            "5. Provide a brief Root Cause Analysis explaining why the original selector broke.\n\n"
             "Return JSON ONLY: {\"selector\": \"string\", \"explanation\": \"string\", \"conf\": float}"
         )
         
@@ -149,6 +165,46 @@ def _get_healix():
     if _hx is None:
         _hx = Healix()
     return _hx
+
+async def healed_locator(page, selector, timeout=2000):
+    """
+    Returns a self-healing Playwright locator.
+    If the initial selector fails, it uses AI to find a successor.
+    Useful for Page Objects and assertions like expect(locator).to_have_text().
+    """
+    browser = page.context.browser.browser_type.name
+    hx = _get_healix()
+    
+    # Try to check cache first
+    cached = hx.cache.get(f"{browser}::{selector}")
+    if cached:
+        print(f"[Healix] Cache hit for '{selector}' -> '{cached}'")
+        return page.locator(cached)
+
+    try:
+        # Check if the element exists by waiting for it briefly
+        await page.wait_for_selector(selector, state="attached", timeout=timeout)
+        return page.locator(selector)
+    except Exception as e:
+        print(f"[Healix] Locator '{selector}' not found. Healing...")
+        html = await page.content()
+        fix = await hx.get_fix(selector, html, browser=browser, error_msg=str(e)[:100])
+        
+        if fix and fix.get("conf", 0) > 0.6:
+            new_sel = fix["selector"]
+            print(f"[Healix] Result: {new_sel} (conf: {fix.get('conf')})")
+            
+            # If high confidence, cache it immediately so next run is fast
+            if fix.get("conf", 0) > 0.8:
+                caller = traceback.extract_stack()[-2]
+                file_info = {"file": caller.filename, "line": caller.lineno}
+                hx.log_proposal(selector, new_sel, file_info, fix.get("explanation"))
+                hx._save_cache(selector, new_sel, browser=browser)
+                
+            return page.locator(new_sel)
+        else:
+            # Fallback to original locator so natural Playwright error triggers if AI fails
+            return page.locator(selector)
 
 async def smart_click(page, selector, text_to_fill=None, timeout=2000):
     caller = traceback.extract_stack()[-2]

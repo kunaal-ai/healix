@@ -153,6 +153,89 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+## Advanced Usage
+
+### Self-Healing Assertions
+
+Standard Playwright assertions (`expect`) are strict. If a selector breaks, the test fails immediately. Healix provides `healed_locator` to fix this:
+
+```python
+from healix import healed_locator
+from playwright.async_api import expect
+
+# ❌ Standard: Fails immediately if #header-v1 is missing
+# await expect(page.locator("#header-v1")).to_have_text("Welcome")
+
+# ✅ Healix: Finds the element (e.g. #header-v2) using AI, then asserts
+header = await healed_locator(page, "#header-v1")
+await expect(header).to_have_text("Welcome")
+```
+
+### Page Object Model (POM)
+
+Healix works great with Page Objects. Since AI healing is async, use **async methods** instead of properties:
+
+```python
+from healix import healed_locator, smart_click
+
+class LoginPage:
+    def __init__(self, page):
+        self.page = page
+
+    # Action: Use smart_click
+    async def login(self, user, pw):
+        await smart_click(self.page, "#username", text_to_fill=user)
+        await smart_click(self.page, "#password", text_to_fill=pw)
+        await smart_click(self.page, "#login-btn")
+
+    # element: Use healed_locator
+    async def get_welcome_message(self):
+        # Heals selector if it breaks
+        return await healed_locator(self.page, ".welcome-text")
+```
+
+
+## Advanced Usage
+
+### Self-Healing Assertions
+
+Standard Playwright assertions (`expect`) are strict. If a selector breaks, the test fails immediately. Healix provides `healed_locator` to fix this:
+
+```python
+from healix import healed_locator
+from playwright.async_api import expect
+
+# ❌ Standard: Fails immediately if #header-v1 is missing
+# await expect(page.locator("#header-v1")).to_have_text("Welcome")
+
+# ✅ Healix: Finds the element (e.g. #header-v2) using AI, then asserts
+header = await healed_locator(page, "#header-v1")
+await expect(header).to_have_text("Welcome")
+```
+
+### Page Object Model (POM)
+
+Healix works great with Page Objects. Since AI healing is async, use **async methods** instead of properties:
+
+```python
+from healix import healed_locator, smart_click
+
+class LoginPage:
+    def __init__(self, page):
+        self.page = page
+
+    # Action: Use smart_click
+    async def login(self, user, pw):
+        await smart_click(self.page, "#username", text_to_fill=user)
+        await smart_click(self.page, "#password", text_to_fill=pw)
+        await smart_click(self.page, "#login-btn")
+
+    # element: Use healed_locator
+    async def get_welcome_message(self):
+        # Heals selector if it breaks
+        return await healed_locator(self.page, ".welcome-text")
+```
+
 ## How It Works
 
 ### DOM Cleaning & Privacy
