@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="healix",
+    name="healix-ai",
     version="0.1.0",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
@@ -10,5 +10,12 @@ setup(
         "beautifulsoup4>=4.12.0",
         "requests>=2.31.0",
     ],
+    entry_points={
+        "console_scripts": [
+            "healix=healix.engine:main",
+        ],
+    },
+    author="Kunaa Thanik",
+    description="An autonomous self-healing agent for Playwright tests.",
     python_requires=">=3.8",
 )

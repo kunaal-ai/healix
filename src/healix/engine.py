@@ -4,6 +4,7 @@ import os
 import sys
 import traceback
 import requests
+import subprocess
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 
@@ -11,24 +12,21 @@ class Healix:
     def __init__(self, model="qwen2.5-coder:7b"):
         self.model = model
         self.ollama_url = "http://localhost:11434/api/generate"
-        self.cache_file = "data/healix_cache.json"
-        self.report_file = "data/healix_proposals.json"
+        self.data_dir = os.path.join(os.getcwd(), "healix_data")
+        self.cache_file = os.path.join(self.data_dir, "cache.json")
+        self.report_file = os.path.join(self.data_dir, "proposals.json")
         self._ensure_dirs()
         self.cache = self._load_cache()
-        print(f"Healix Initialized [Model: {self.model}]")
 
     def _ensure_dirs(self):
-        os.makedirs("data", exist_ok=True)
+        os.makedirs(self.data_dir, exist_ok=True)
 
     def _load_cache(self):
         if os.path.exists(self.cache_file):
             try:
                 with open(self.cache_file, 'r') as f:
-                    data = json.load(f)
-                    print(f"Loaded {len(data)} healed selectors from cache.")
-                    return data
+                    return json.load(f)
             except:
-                print("Warning: Cache file corrupted. Starting with empty memory.")
                 return {}
         return {}
 
@@ -36,156 +34,126 @@ class Healix:
         self.cache[selector] = fixed_selector
         with open(self.cache_file, 'w') as f:
             json.dump(self.cache, f, indent=2)
-        print(f"Permanent Fix Saved: '{selector}' -> '{fixed_selector}'")
 
-    def log_proposal(self, original, fixed, file_info):
+    def log_proposal(self, original, fixed, file_info, reason=""):
         proposals = []
         if os.path.exists(self.report_file):
             with open(self.report_file, 'r') as f:
-                try:
-                    proposals = json.load(f)
-                except:
-                    proposals = []
+                try: proposals = json.load(f)
+                except: proposals = []
         
         proposals.append({
             "file": file_info.get("file"),
             "line": file_info.get("line"),
             "original_selector": original,
             "suggested_fix": fixed,
+            "reasoning": reason,
             "status": "pending_review"
         })
         
         with open(self.report_file, 'w') as f:
             json.dump(proposals, f, indent=2)
-        print(f"Code Change Proposal logged for: {file_info.get('file')}:{file_info.get('line')}")
 
     def get_clean_dom(self, html):
-        print("Cleaning DOM to reduce token noise...")
         soup = BeautifulSoup(html, 'html.parser')
         for tag in soup(["script", "style", "svg", "path", "iframe"]):
             tag.decompose()
         
         clean_tags = []
         for tag in soup.find_all(['input', 'button', 'a', 'label', 'form']):
-            allowed_attrs = ['id', 'class', 'name', 'type', 'placeholder', 'href', 'aria-label', 'data-testid']
-            attrs = {k: v for k, v in tag.attrs.items() if k in allowed_attrs}
-            tag.attrs = attrs
+            allowed = ['id', 'class', 'name', 'type', 'placeholder', 'aria-label', 'data-testid']
+            tag.attrs = {k: v for k, v in tag.attrs.items() if k in allowed}
             clean_tags.append(str(tag))
             
-        cleaned = "\n".join(clean_tags)[:8000] # to fit context length
-        print(f"DOM Cleaned. Size: {len(cleaned)} characters.")
-        return cleaned
+        return "\n".join(clean_tags)[:8000]
 
-    async def observe_state(self, page):
-        print("Observing page state for visible errors...")
-        content = await page.content()
-        error_keywords = ["error", "invalid", "failed", "required", "timeout"]
-        found_errors = [e for e in error_keywords if e in content.lower()]
-        if found_errors:
-            print(f"Found potential errors on page: {found_errors}")
-        return found_errors
-
-    async def verify_fix(self, page, old_url):
-        await page.wait_for_timeout(1000)
-        new_url = page.url
-        if new_url != old_url:
-            print("Verification Success: Navigation detected.")
-            return True
-        return False
-
-    async def get_fix(self, broken_selector, html, browser_type="chromium", error_msg="", page_errors=None):
+    async def get_fix(self, broken_selector, html, browser="chromium", error_msg=""):
         if broken_selector in self.cache and not error_msg:
-            print(f"Cache Hit: Using known fix for '{broken_selector}'")
-            return {"selector": self.cache[broken_selector], "action": "click", "conf": 1.0}
+            return {"selector": self.cache[broken_selector], "conf": 1.0, "explanation": "Cache hit"}
 
-        print(f"Querying AI for fix [Browser: {browser_type} | Broken Selector: {broken_selector}]...")
         dom = self.get_clean_dom(html)
-        context = f"Browser Context: {browser_type}\nTechnical Error: {error_msg}\n" if error_msg else ""
-        if page_errors:
-            context += f"Visible Page Errors: {', '.join(page_errors)}"
-        
         prompt = (
-            f"You are a Multi-Browser QA Agent. A test failed in {browser_type} on: {broken_selector}\n"
-            f"{context}\n"
-            f"Elements:\n{dom}\n"
-            "Identify the correct selector. Prefer data-testid or ID. If not available, use name or aria-label.\n"
-            "Return JSON ONLY: {\"selector\": \"string\", \"action\": \"click|fill\", \"conf\": float}"
+            f"QA Failure in {browser} on: {broken_selector}\n"
+            f"Error: {error_msg}\n"
+            f"DOM Elements:\n{dom}\n"
+            "Identify the correct selector and provide a brief Root Cause Analysis (RCA).\n"
+            "Return JSON: {\"selector\": \"string\", \"explanation\": \"string\", \"conf\": float}"
         )
         
         try:
             r = requests.post(self.ollama_url, json={
                 "model": self.model, "prompt": prompt, "stream": False, "format": "json"
             }, timeout=30)
-            res = json.loads(r.json().get("response", "{}"))
-            if res.get("conf", 0) > 0.7:
-                print(f"AI Suggestion Received: {res['selector']} (Confidence: {res['conf']})")
-                return res
-            else:
-                print(f"AI Confidence too low: {res.get('conf', 0)}")
+            
+            # Sanitization: Ensure the response is clean JSON
+            raw_response = r.json().get("response", "{}").strip()
+            if "```json" in raw_response:
+                raw_response = raw_response.split("```json")[1].split("```")[0].strip()
+            
+            return json.loads(raw_response)
         except Exception as e:
-            print(f"Healix API connection failed: {e}")
-        return None
+            print(f"[Healix] AI Connection error: {e}")
+            return None
 
 hx = Healix()
 
-async def smart_click(page, selector, text_to_fill=None):
+async def smart_click(page, selector, text_to_fill=None, timeout=2000):
     caller = traceback.extract_stack()[-2]
     file_info = {"file": caller.filename, "line": caller.lineno}
-    browser_type = page.context.browser.browser_type.name
+    browser = page.context.browser.browser_type.name
 
-    action_name = "Fill" if text_to_fill else "Click"
-    print(f"\nExecuting Action: {action_name} on '{selector}' [{browser_type}]")
-    
     try:
         if text_to_fill:
-            await page.fill(selector, text_to_fill, timeout=2000)
+            await page.fill(selector, text_to_fill, timeout=timeout)
         else:
-            await page.click(selector, timeout=2000)
-        print(f"Step Success: '{selector}' worked.")
+            await page.click(selector, timeout=timeout)
     except Exception as e:
-        print(f"Action Failed. Initiating Healix Recovery...")
-        
-        initial_url = page.url
-        page_errors = await hx.observe_state(page)
+        print(f"[Healix] Healing '{selector}'...")
         html = await page.content()
-        fix = await hx.get_fix(selector, html, browser_type=browser_type, error_msg=str(e)[:100], page_errors=page_errors)
+        fix = await hx.get_fix(selector, html, browser=browser, error_msg=str(e)[:100])
         
         if fix and fix.get("conf", 0) > 0.6:
             new_sel = fix["selector"]
-            print(f"Healix Suggestion: {new_sel}")
-            
+            print(f"[Healix] Trying healed selector: {new_sel} (conf: {fix.get('conf')})")
             try:
-                if text_to_fill:
-                    await page.fill(new_sel, text_to_fill)
-                else:
-                    await page.click(new_sel)
-                
-                is_verified = await hx.verify_fix(page, initial_url)
-                
-                if is_verified or fix.get("conf", 0) > 0.9:
-                    print(f"Recovery Successful: Test continued via '{new_sel}'")
-                    hx.log_proposal(selector, new_sel, file_info)
-                    hx._save_cache(selector, new_sel)
-                else:
-                    print("Heal was applied but verification failed. Retrying Plan B...")
-                    raise Exception("Verification failed")
-                    
-            except Exception as e2:
-                print(f"Recovery attempt failed: {str(e2)[:50]}")
-                print("Starting Plan B (Error Feedback Loop)...")
-                retry = await hx.get_fix(selector, html, browser_type=browser_type, error_msg=str(e2)[:100])
-                if retry:
-                    await page.click(retry['selector'], timeout=3000)
-                    print("Plan B Succeeded: Test recovered.")
+                if text_to_fill: await page.fill(new_sel, text_to_fill, timeout=timeout)
+                else: await page.click(new_sel, timeout=timeout)
+                hx.log_proposal(selector, new_sel, file_info, fix.get("explanation"))
+                hx._save_cache(selector, new_sel)
+                print(f"[Healix] ✅ Fixed with: {new_sel}")
+            except Exception as heal_err:
+                print(f"[Healix] ❌ Healed selector also failed: {str(heal_err)[:80]}")
+                raise e
         else:
-            print("Healix failed to find a reliable fix. Hard failure.")
-            raise Exception(f"Healix failed to heal: {selector}")
+            print(f"[Healix] No viable fix found (conf: {fix.get('conf') if fix else 'N/A'})")
+            raise e
 
-if __name__ == "__main__":
+def install_browsers():
+    """Ensure Playwright browsers are installed before running."""
+    print("[Healix] Verifying browser binaries...")
+    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium", "firefox"], check=True)
+
+def main():
     if len(sys.argv) < 2:
-        print("Usage: python -m healix.engine <test_file.py>")
-        sys.exit(1)
+        print("Healix AI Agent\nUsage: healix <test_file.py>")
+        return
     
     test_file = sys.argv[1]
-    print(f"Healix CLI: Running test suite {test_file}")
-    # Logic to execute the test file would go here or via subprocess
+    if not os.path.exists(test_file):
+        print(f"Error: {test_file} not found.")
+        return
+
+    # Check for playwright binaries
+    try:
+        install_browsers()
+    except Exception as e:
+        print(f"Failed to install browsers: {e}")
+
+    # Set PYTHONPATH to include the current directory so imports work for the user
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.getcwd() + os.pathsep + env.get("PYTHONPATH", "")
+    
+    subprocess.run([sys.executable, test_file], env=env)
+
+if __name__ == "__main__":
+    main()
