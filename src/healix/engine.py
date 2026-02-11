@@ -8,15 +8,45 @@ import subprocess
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 
+class HealixError(Exception):
+    """Base exception for Healix errors."""
+    pass
+
+class OllamaConnectionError(HealixError):
+    """Raised when Ollama is not reachable."""
+    pass
+
+class BrowserNotInstalledError(HealixError):
+    """Raised when Playwright browsers are not installed."""
+    pass
+
 class Healix:
     def __init__(self, model="qwen2.5-coder:7b"):
         self.model = model
         self.ollama_url = "http://localhost:11434/api/generate"
-        self.data_dir = os.path.join(os.getcwd(), "healix_data")
+        self.data_dir = os.path.join(os.path.expanduser("~"), ".healix")
         self.cache_file = os.path.join(self.data_dir, "cache.json")
         self.report_file = os.path.join(self.data_dir, "proposals.json")
         self._ensure_dirs()
         self.cache = self._load_cache()
+        self._check_ollama()
+
+    def _check_ollama(self):
+        """Verify Ollama is running at startup with a friendly error message."""
+        try:
+            requests.get("http://localhost:11434/api/tags", timeout=3)
+        except requests.ConnectionError:
+            print(
+                "\n[Healix] ERROR: Cannot connect to Ollama.\n"
+                "  Healix requires Ollama running locally for AI inference.\n\n"
+                "  To fix this:\n"
+                "    1. Install Ollama:  https://ollama.com/download\n"
+                "    2. Start it:        ollama serve\n"
+                "    3. Pull a model:    ollama pull qwen2.5-coder:7b\n"
+            )
+            raise OllamaConnectionError(
+                "Ollama is not running. Start it with: ollama serve"
+            )
 
     def _ensure_dirs(self):
         os.makedirs(self.data_dir, exist_ok=True)
@@ -98,16 +128,33 @@ class Healix:
                 raw_response = raw_response.split("```json")[1].split("```")[0].strip()
             
             return json.loads(raw_response)
+        except requests.ConnectionError:
+            print(
+                "\n[Healix] ERROR: Lost connection to Ollama during healing.\n"
+                "  Is Ollama still running? Check with: ollama list\n"
+            )
+            return None
+        except json.JSONDecodeError as e:
+            print(f"[Healix] Failed to parse AI response: {e}")
+            return None
         except Exception as e:
-            print(f"[Healix] AI Connection error: {e}")
+            print(f"[Healix] Unexpected error: {e}")
             return None
 
-hx = Healix()
+_hx = None
+
+def _get_healix():
+    """Lazy initialization — only connects to Ollama when first needed."""
+    global _hx
+    if _hx is None:
+        _hx = Healix()
+    return _hx
 
 async def smart_click(page, selector, text_to_fill=None, timeout=2000):
     caller = traceback.extract_stack()[-2]
     file_info = {"file": caller.filename, "line": caller.lineno}
     browser = page.context.browser.browser_type.name
+    hx = _get_healix()
 
     try:
         if text_to_fill:
@@ -154,7 +201,33 @@ async def smart_click(page, selector, text_to_fill=None, timeout=2000):
 def install_browsers():
     """Ensure Playwright browsers are installed before running."""
     print("[Healix] Verifying browser binaries...")
-    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium", "firefox"], check=True)
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium", "firefox"],
+            check=True, capture_output=True, text=True
+        )
+    except subprocess.CalledProcessError as e:
+        print(
+            "\n[Healix] ERROR: Failed to install Playwright browsers.\n"
+            f"  Details: {e.stderr.strip() if e.stderr else 'Unknown error'}\n\n"
+            "  To fix this manually:\n"
+            "    pip install playwright\n"
+            "    playwright install chromium firefox\n"
+        )
+        raise BrowserNotInstalledError(
+            "Playwright browsers could not be installed. "
+            "Run manually: playwright install chromium firefox"
+        )
+    except FileNotFoundError:
+        print(
+            "\n[Healix] ERROR: Playwright is not installed.\n\n"
+            "  To fix this:\n"
+            "    pip install playwright\n"
+            "    playwright install chromium firefox\n"
+        )
+        raise BrowserNotInstalledError(
+            "Playwright not found. Install with: pip install playwright"
+        )
 
 def main():
     if len(sys.argv) < 2:
@@ -169,8 +242,8 @@ def main():
     # Check for playwright binaries
     try:
         install_browsers()
-    except Exception as e:
-        print(f"Failed to install browsers: {e}")
+    except BrowserNotInstalledError:
+        return
 
     # Set PYTHONPATH to include the current directory so imports work for the user
     env = os.environ.copy()
