@@ -221,7 +221,7 @@ docker run healix
 
 ## 📄 License
 
-[Add your license here]
+This project is licensed under the [MIT License](LICENSE).
 
 ## 🔮 Roadmap
 
