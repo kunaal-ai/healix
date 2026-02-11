@@ -1,5 +1,9 @@
 # Healix
 
+[![PyPI version](https://img.shields.io/pypi/v/healix-ai.svg)](https://pypi.org/project/healix-ai/)
+[![Python](https://img.shields.io/pypi/pyversions/healix-ai.svg)](https://pypi.org/project/healix-ai/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Healix** is an intelligent web automation agent that self-heals broken selectors and adapts to dynamic web pages using AI-powered DOM analysis.
 
 ## The Problem
@@ -9,6 +13,14 @@ Web automation is fragile. Selectors break when:
 - DOM structure shifts
 - Content loads dynamically
 - A/B tests alter page layouts
+
+## Why Healix?
+
+- **Zero config** — Drop-in replacement for flaky selectors, no test rewrites needed
+- **Runs locally** — Uses Ollama for AI inference, no API keys or cloud dependencies
+- **Browser-aware** — Separate caching per browser engine (Chromium, Firefox, WebKit)
+- **Learns over time** — Caches successful fixes for instant replay on subsequent runs
+- **Transparent** — Logs every decision with confidence scores and reasoning
 
 ## The Solution
 
@@ -117,6 +129,15 @@ healix/
 ├── requirements.txt           # Dependencies
 └── README.md                  # This file
 ```
+
+## Prerequisites
+
+- **Python** 3.9 or higher
+- **Ollama** running locally — [Install Ollama](https://ollama.com/download), then:
+  ```bash
+  ollama serve
+  ollama pull qwen2.5-coder:7b
+  ```
 
 ## Installation
 
@@ -228,6 +249,18 @@ docker run healix
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+## Known Limitations
+
+- Requires Ollama running locally (cloud LLM support planned)
+- Healing accuracy depends on DOM quality — heavily obfuscated pages may need multiple retries
+- First-time healing adds latency (~2-5s per selector); cached fixes are instant
+- Currently supports `click` and `fill` actions; other Playwright actions coming soon
+
+## Support
+
+- **Issues**: [github.com/kunaal-ai/healix/issues](https://github.com/kunaal-ai/healix/issues)
+- **Changelog**: See [Releases](https://github.com/kunaal-ai/healix/releases)
 
 ## Roadmap
 
