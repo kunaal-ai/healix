@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.13] - 2026-02-11
+
+### Fixed
+- **Page Action Interception**: `HealixPageProxy` now intercepts high-level actions like `page.click()`, `page.fill()`, and `page.select_option()`, automatically upgrading them to smart locators to ensure self-healing works even without explicit `page.locator()` calls.
+
 ## [0.1.12] - 2026-02-11
 
 ### Fixed

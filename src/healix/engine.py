@@ -168,6 +168,34 @@ class HealixPageProxy:
         loc = self._page.locator(selector, **kwargs)
         return SmartLocatorProxy(loc, self._page, selector)
 
+    # Intercept high-level actions to ensure they are healed too!
+    def click(self, selector, **kwargs):
+        return self.locator(selector).click(**kwargs)
+
+    def fill(self, selector, value, **kwargs):
+        return self.locator(selector).fill(value, **kwargs)
+    
+    def check(self, selector, **kwargs):
+        return self.locator(selector).check(**kwargs)
+    
+    def uncheck(self, selector, **kwargs):
+        return self.locator(selector).uncheck(**kwargs)
+
+    def hover(self, selector, **kwargs):
+        return self.locator(selector).hover(**kwargs)
+
+    def type(self, selector, text, **kwargs):
+        return self.locator(selector).type(text, **kwargs)
+
+    def press(self, selector, key, **kwargs):
+        return self.locator(selector).press(key, **kwargs)
+
+    def select_option(self, selector, value, **kwargs):
+        return self.locator(selector).select_option(value, **kwargs)
+
+    def dblclick(self, selector, **kwargs):
+        return self.locator(selector).dblclick(**kwargs)
+
     def __getattr__(self, name):
         return getattr(self._page, name)
 
