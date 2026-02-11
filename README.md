@@ -38,72 +38,38 @@ Healix uses an **agentic loop** to automatically detect and fix selector failure
 
 ### Operational Workflow
 
-```mermaid
-flowchart TD
-    subgraph Execution["Test Execution Layer"]
-        Start(["Test Failure Detected"])
-        RetryCache(["Re-run with Cache"])
-        RetryAI(["Re-run with AI Fix"])
-    end
-
-    subgraph Persistence["Persistence Layer"]
-        CheckCache{"Check Cache"}
-        ApplyCache["Apply Cached Selector"]
-        UpdateCache[("Update Cache")]
-    end
-
-    subgraph Intelligence["AI Intelligence Layer"]
-        CleanDOM["DOM Scrubbing & Minification"]
-        AskOllama["Query Ollama (qwen2.5-coder)"]
-        Analyze["Confidence Scoring"]
-    end
-
-    subgraph Feedback["Reporting Layer"]
-        Success(["Healing Successful"])
-        Manual(["Manual Review Required"])
-        Proposal[("Log Code Proposal")]
-    end
-
-    %% Flow Logic
-    Start --> CheckCache
-    
-    CheckCache -- "Hit" --> ApplyCache
-    ApplyCache --> RetryCache
-    
-    CheckCache -- "Miss" --> CleanDOM
-    
-    RetryCache -- "Success" --> Success
-    RetryCache -- "Fail" --> CleanDOM
-    
-    CleanDOM --> AskOllama
-    AskOllama --> Analyze
-    
-    Analyze -- "High Confidence" --> RetryAI
-    Analyze -- "Low Confidence" --> Manual
-    
-    RetryAI -- "Success" --> UpdateCache
-    UpdateCache --> Success
-    
-    RetryAI -- "Fail" --> Manual
-    
-    Success --> Proposal
-    Manual --> Proposal
-    Proposal --> End(["Action Complete"])
-
-    %% Premium Styling
-    classDef startEnd fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#1e293b
-    classDef intelligence fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a
-    classDef persistence fill:#ecfdf5,stroke:#10b981,stroke-width:2px,color:#064e3b
-    classDef execution fill:#fff7ed,stroke:#f59e0b,stroke-width:2px,color:#7c2d12
-    classDef feedback fill:#faf5ff,stroke:#a855f7,stroke-width:2px,color:#581c87
-    classDef decision fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray: 5 5
-
-    class Start,End startEnd
-    class CleanDOM,AskOllama,Analyze intelligence
-    class CheckCache,ApplyCache,UpdateCache persistence
-    class RetryCache,RetryAI execution
-    class Success,Manual,Proposal,GenerateFeedback feedback
-    class CheckCache,Analyze decision
+```
+                        Test Failure Detected
+                                |
+                          Check Cache
+                         /          \
+                      Hit            Miss
+                       |               |
+               Apply Cached       DOM Scrubbing
+                 Selector        & Minification
+                       |               |
+                Re-run Test       Query Ollama
+                 /       \        (Local LLM)
+            Success     Fail          |
+               |          \    Confidence Scoring
+               |           \      /          \
+               |            \  High          Low
+               |             \  |             |
+               |          Re-run with     Manual Review
+               |           AI Fix          Required
+               |           /    \             |
+               |       Success  Fail          |
+               |          |       |           |
+               |    Update Cache  |           |
+               |          |       |           |
+                \         |      /           /
+                 \        |     /           /
+              Healing  ----+----    -------
+             Successful    |
+                           |
+                  Log Code Proposal
+                           |
+                    Action Complete
 ```
 
 ## Architecture
