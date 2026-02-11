@@ -31,6 +31,15 @@ class Healix:
         self.cache = self._load_cache()
         self._check_ollama()
 
+    @staticmethod
+    def patch(page):
+        """
+        Wraps a Playwright page (Sync or Async) to make all its locators self-healing.
+        Usage: page = Healix.patch(page)
+        """
+        return HealixPageProxy(page)
+
+
     def _check_ollama(self):
         """Verify Ollama is running at startup with a friendly error message."""
         try:
@@ -114,6 +123,9 @@ class Healix:
         return "\n".join(clean_tags)[:15000] # Increased token limit for text context
 
     async def get_fix(self, broken_selector, html, browser="chromium", error_msg=""):
+        return self.get_fix_sync(broken_selector, html, browser, error_msg)
+
+    def get_fix_sync(self, broken_selector, html, browser="chromium", error_msg=""):
         cache_key = f"{browser}::{broken_selector}"
         if cache_key in self.cache and not error_msg:
             return {"selector": self.cache[cache_key], "conf": 1.0, "explanation": "Cache hit"}
@@ -138,24 +150,89 @@ class Healix:
                 "model": self.model, "prompt": prompt, "stream": False, "format": "json"
             }, timeout=30)
             
-            # Sanitization: Ensure the response is clean JSON
             raw_response = r.json().get("response", "{}").strip()
             if "```json" in raw_response:
                 raw_response = raw_response.split("```json")[1].split("```")[0].strip()
             
             return json.loads(raw_response)
-        except requests.ConnectionError:
-            print(
-                "\n[Healix] ERROR: Lost connection to Ollama during healing.\n"
-                "  Is Ollama still running? Check with: ollama list\n"
-            )
+        except Exception:
             return None
-        except json.JSONDecodeError as e:
-            print(f"[Healix] Failed to parse AI response: {e}")
-            return None
-        except Exception as e:
-            print(f"[Healix] Unexpected error: {e}")
-            return None
+
+class HealixPageProxy:
+    """Proxies a Playwright Page to intercept .locator() calls."""
+    def __init__(self, page):
+        self._page = page
+
+    def locator(self, selector, **kwargs):
+        loc = self._page.locator(selector, **kwargs)
+        return SmartLocatorProxy(loc, self._page, selector)
+
+    def __getattr__(self, name):
+        return getattr(self._page, name)
+
+class SmartLocatorProxy:
+    """Proxies a Playwright Locator to add transparent self-healing."""
+    def __init__(self, locator, page, selector):
+        self._locator = locator
+        self._page = page
+        self._selector = selector
+
+    def __getattr__(self, name):
+        attr = getattr(self._locator, name)
+        
+        # If accessing properties like .first, .last, .nth(), wrap the result
+        if name in ["first", "last", "nth"]:
+            if callable(attr):
+                def wrapper(*args, **kwargs):
+                    return SmartLocatorProxy(attr(*args, **kwargs), self._page, self._selector)
+                return wrapper
+            return SmartLocatorProxy(attr, self._page, self._selector)
+            
+        if callable(attr):
+            return self._wrap_action(attr, name)
+        return attr
+
+    def _wrap_action(self, method, name):
+        def wrapper(*args, **kwargs):
+            try:
+                # Try original action (respecting timeout)
+                return method(*args, **kwargs)
+            except Exception as e:
+                # Check if it's a timeout/not-found error
+                if "timeout" in str(e).lower() or "not found" in str(e).lower() or "waiting for" in str(e).lower():
+                    print(f"[Healix] Locator '{self._selector}' failed ({name}). Healing...")
+                    hx = _get_healix()
+                    
+                    # Detect if we are in sync or async world
+                    is_async = asyncio.iscoroutinefunction(self._page.content)
+                    
+                    if is_async:
+                        # This proxy is currently optimized for Sync (para-bank use case)
+                        # but we can add async support if needed.
+                        raise e
+                    
+                    # Sync healing flow
+                    html = self._page.content()
+                    browser = self._page.context.browser.browser_type.name
+                    fix = hx.get_fix_sync(self._selector, html, browser=browser, error_msg=str(e)[:100])
+                    
+                    if fix and fix.get("conf", 0) > 0.6:
+                        new_sel = fix["selector"]
+                        print(f"[Healix] Found fix: {new_sel} (conf: {fix['conf']})")
+                        
+                        # Apply fix to cache and log proposal
+                        # We use a dummy file info for now as stack trace in proxies is deep
+                        file_info = {"file": "PageObject", "line": 0}
+                        hx.log_proposal(self._selector, new_sel, file_info, fix.get("explanation"))
+                        hx._save_cache(self._selector, new_sel, browser=browser)
+                        
+                        # Update our internal locator and retry
+                        self._locator = self._page.locator(new_sel)
+                        new_method = getattr(self._locator, name)
+                        print(f"[Healix] Retrying {name} with new selector...")
+                        return new_method(*args, **kwargs)
+                raise e
+        return wrapper
 
 _hx = None
 

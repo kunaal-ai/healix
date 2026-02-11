@@ -153,6 +153,27 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+
+## Zero-Refactor Integration (New!)
+
+Already have a large project? You don't need to rewrite your Page Objects. Just "patch" the page at the start of your test:
+
+```python
+from healix import Healix
+from playwright.sync_api import expect
+
+def test_login(page):
+    # Patch the page once
+    page = Healix.patch(page)
+    
+    # 0 changes needed to your Page Objects!
+    # page.locator() now automatically produces self-healing locators.
+    login_page = LoginPage(page)
+    
+    login_page.login("user", "pass")
+    expect(login_page.welcome_msg).to_be_visible()
+```
+
 ## Advanced Usage
 
 ### Self-Healing Assertions
