@@ -162,10 +162,9 @@ class HealixPageProxy:
     """Proxies a Playwright Page to intercept .locator() calls."""
     def __init__(self, page):
         self._page = page
-        print(f"\n[Healix] 🚀 Zero-Refactor healing is ACTIVE.")
+        print(f"\n[Healix] [INFO] Zero-Refactor healing is ACTIVE.")
 
     def locator(self, selector, **kwargs):
-        # print(f"[Healix] 👀 Watching selector: {selector}")
         loc = self._page.locator(selector, **kwargs)
         return SmartLocatorProxy(loc, self._page, selector)
 
@@ -234,20 +233,20 @@ class SmartLocatorProxy:
 
     def _heal_and_retry(self, name, *args, **kwargs):
         """Internal logic to trigger AI healing and retry the action."""
-        print(f"[Healix] 🩹 Selector '{self._selector}' failed during '{name}'. Healing...")
+        print(f"[Healix] [HEAL] Selector '{self._selector}' failed during '{name}'. Healing...")
         hx = _get_healix()
         
         # We assume sync for now as per ParaBank usage
         html = self._page.content()
         browser = self._page.context.browser.browser_type.name
         
-        print(f"[Healix] 🤖 Analyzing DOM with AI...")
+        print(f"[Healix] [INFO] Analyzing DOM with AI...")
         fix = hx.get_fix_sync(self._selector, html, browser=browser, error_msg=f"Element not found during {name}")
         
         if fix and fix.get("conf", 0) > 0.6:
             new_sel = fix["selector"]
-            print(f"[Healix] ✨ Found fix: {new_sel} (conf: {fix['conf']})")
-            print(f"[Healix] 📝 Root Cause: {fix.get('explanation', 'N/A')}")
+            print(f"[Healix] [SUCCESS] Found fix: {new_sel} (conf: {fix['conf']})")
+            print(f"[Healix] [INFO] Root Cause: {fix.get('explanation', 'N/A')}")
             
             hx.log_proposal(self._selector, new_sel, {"file": "PageObject", "line": 0}, fix.get("explanation"))
             hx._save_cache(self._selector, new_sel, browser=browser)
@@ -255,10 +254,10 @@ class SmartLocatorProxy:
             # Update internal locator and retry the call
             self._locator = self._page.locator(new_sel)
             new_method = getattr(self._locator, name)
-            print(f"[Healix] 🔄 Retrying '{name}' with healed selector...")
+            print(f"[Healix] [INFO] Retrying '{name}' with healed selector...")
             return new_method(*args, **kwargs)
         
-        raise RuntimeError(f"[Healix] ❌ Failed to heal selector: {self._selector}")
+        raise RuntimeError(f"[Healix] [ERROR] Failed to heal selector: {self._selector}")
 
 _hx = None
 
@@ -281,7 +280,7 @@ async def smart_locator(page, selector, timeout=2000):
     # Try to check cache first
     cached = hx.cache.get(f"{browser}::{selector}")
     if cached:
-        print(f"[Healix] Cache hit for '{selector}' -> '{cached}'")
+        print(f"[Healix] [INFO] Cache hit for '{selector}' -> '{cached}'")
         return page.locator(cached)
 
     try:
@@ -289,13 +288,13 @@ async def smart_locator(page, selector, timeout=2000):
         await page.wait_for_selector(selector, state="attached", timeout=timeout)
         return page.locator(selector)
     except Exception as e:
-        print(f"[Healix] Locator '{selector}' not found. Healing...")
+        print(f"[Healix] [HEAL] Locator '{selector}' not found. Healing...")
         html = await page.content()
         fix = await hx.get_fix(selector, html, browser=browser, error_msg=str(e)[:100])
         
         if fix and fix.get("conf", 0) > 0.6:
             new_sel = fix["selector"]
-            print(f"[Healix] Result: {new_sel} (conf: {fix.get('conf')})")
+            print(f"[Healix] [SUCCESS] Result: {new_sel} (conf: {fix.get('conf')})")
             
             # If high confidence, cache it immediately so next run is fast
             if fix.get("conf", 0) > 0.8:
@@ -321,40 +320,40 @@ async def smart_click(page, selector, text_to_fill=None, timeout=2000):
         else:
             await page.click(selector, timeout=timeout)
     except Exception as e:
-        print(f"[Healix] Healing '{selector}'...")
+        print(f"[Healix] [HEAL] Healing '{selector}'...")
         html = await page.content()
         fix = await hx.get_fix(selector, html, browser=browser, error_msg=str(e)[:100])
         
         if fix and fix.get("conf", 0) > 0.6:
             new_sel = fix["selector"]
-            print(f"[Healix] Trying healed selector: {new_sel} (conf: {fix.get('conf')})")
+            print(f"[Healix] [INFO] Trying healed selector: {new_sel} (conf: {fix.get('conf')})")
             try:
                 if text_to_fill: await page.fill(new_sel, text_to_fill, timeout=timeout)
                 else: await page.click(new_sel, timeout=timeout)
                 hx.log_proposal(selector, new_sel, file_info, fix.get("explanation"))
                 hx._save_cache(selector, new_sel, browser=browser)
-                print(f"[Healix] ✅ Fixed with: {new_sel}")
+                print(f"[Healix] [SUCCESS] Fixed with: {new_sel}")
             except Exception as heal_err:
-                print(f"[Healix] ❌ Healed selector failed: {str(heal_err)[:80]}")
-                print(f"[Healix] Plan B: Re-querying AI with failure feedback...")
+                print(f"[Healix] [ERROR] Healed selector failed: {str(heal_err)[:80]}")
+                print(f"[Healix] [INFO] Plan B: Re-querying AI with failure feedback...")
                 retry = await hx.get_fix(selector, html, browser=browser,
                     error_msg=f"Your suggestion '{new_sel}' failed: {str(heal_err)[:60]}")
                 if retry and retry.get("conf", 0) > 0.6:
                     retry_sel = retry["selector"]
-                    print(f"[Healix] Plan B selector: {retry_sel} (conf: {retry.get('conf')})")
+                    print(f"[Healix] [INFO] Plan B selector: {retry_sel} (conf: {retry.get('conf')})")
                     try:
                         if text_to_fill: await page.fill(retry_sel, text_to_fill, timeout=timeout)
                         else: await page.click(retry_sel, timeout=timeout)
                         hx.log_proposal(selector, retry_sel, file_info, retry.get("explanation"))
                         hx._save_cache(selector, retry_sel, browser=browser)
-                        print(f"[Healix] ✅ Plan B succeeded with: {retry_sel}")
+                        print(f"[Healix] [SUCCESS] Plan B succeeded with: {retry_sel}")
                     except:
-                        print(f"[Healix] ❌ Plan B also failed. Hard failure.")
+                        print(f"[Healix] [ERROR] Plan B also failed. Hard failure.")
                         raise e
                 else:
                     raise e
         else:
-            print(f"[Healix] No viable fix found (conf: {fix.get('conf') if fix else 'N/A'})")
+            print(f"[Healix] [INFO] No viable fix found (conf: {fix.get('conf') if fix else 'N/A'})")
             raise e
 
 def install_browsers():
