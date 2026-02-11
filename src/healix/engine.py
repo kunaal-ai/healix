@@ -183,17 +183,27 @@ class SmartLocatorProxy:
         # Trick isinstance() checks (essential for expect() compatibility)
         return self._locator.__class__
 
+    def __call__(self, *args, **kwargs):
+        # Allow the proxy to be called if the underlying object is callable
+        return self._wrap_action(self._locator, "__call__")(*args, **kwargs)
+
     def __getattr__(self, name):
-        # Pass through internal playwright fields (_impl, etc)
+        # Special case: Avoid recursive proxying of our own attributes
+        if name in ["_locator", "_page", "_selector", "_wrap_action", "_heal_and_retry"]:
+            return super().__getattribute__(name)
+
+        if not hasattr(self._locator, name):
+            raise AttributeError(f"Locator has no attribute '{name}'")
+
         attr = getattr(self._locator, name)
         
         # If accessing properties like .first, .last, .nth(), wrap the result
         if name in ["first", "last", "nth"]:
             if callable(attr):
-                def wrapper(*args, **kwargs):
-                    return SmartLocatorProxy(attr(*args, **kwargs), self._page, self._selector)
-                return wrapper
-            return SmartLocatorProxy(attr, self._page, self._selector)
+                def nth_wrapper(*args, **kwargs):
+                    return SmartLocatorProxy(attr(*args, **kwargs), self._page, f"{self._selector} >> {name}({args})")
+                return nth_wrapper
+            return SmartLocatorProxy(attr, self._page, f"{self._selector} >> {name}")
             
         if callable(attr):
             return self._wrap_action(attr, name)

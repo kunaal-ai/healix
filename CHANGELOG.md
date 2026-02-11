@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-02-11
+
+### Fixed
+- **Advanced Proxy Chaining**: Improved support for chained locators like `page.locator("#A").first.locator("#B")`.
+- **Recursion Safety**: Hardened the proxy to prevent internal lookup cycles.
+- **Improved Traceability**: Smart selectors now include child identifiers in logs (e.g. `#parent >> first`).
+
 ## [0.1.8] - 2026-02-11
 
 ### Added
