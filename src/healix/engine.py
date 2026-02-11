@@ -162,9 +162,10 @@ class HealixPageProxy:
     """Proxies a Playwright Page to intercept .locator() calls."""
     def __init__(self, page):
         self._page = page
-        print(f"\n[Healix] 🚀 Page patched! Zero-Refactor healing is ACTIVE.")
+        print(f"\n[Healix] 🚀 Zero-Refactor healing is ACTIVE.")
 
     def locator(self, selector, **kwargs):
+        # print(f"[Healix] 👀 Watching selector: {selector}")
         loc = self._page.locator(selector, **kwargs)
         return SmartLocatorProxy(loc, self._page, selector)
 
@@ -180,28 +181,24 @@ class SmartLocatorProxy:
 
     @property
     def __class__(self):
-        # Trick isinstance() checks (essential for expect() compatibility)
+        # satisfy isinstance(loc, Locator)
         return self._locator.__class__
 
     def __call__(self, *args, **kwargs):
-        # Allow the proxy to be called if the underlying object is callable
         return self._wrap_action(self._locator, "__call__")(*args, **kwargs)
 
     def __getattr__(self, name):
-        # Special case: Avoid recursive proxying of our own attributes
         if name in ["_locator", "_page", "_selector", "_wrap_action", "_heal_and_retry"]:
             return super().__getattribute__(name)
 
-        if not hasattr(self._locator, name):
-            raise AttributeError(f"Locator has no attribute '{name}'")
-
+        # Pass thru to original locator
         attr = getattr(self._locator, name)
         
         # If accessing properties like .first, .last, .nth(), wrap the result
         if name in ["first", "last", "nth"]:
             if callable(attr):
                 def nth_wrapper(*args, **kwargs):
-                    return SmartLocatorProxy(attr(*args, **kwargs), self._page, f"{self._selector} >> {name}({args})")
+                    return SmartLocatorProxy(attr(*args, **kwargs), self._page, f"{self._selector} >> {name}")
                 return nth_wrapper
             return SmartLocatorProxy(attr, self._page, f"{self._selector} >> {name}")
             
@@ -212,28 +209,24 @@ class SmartLocatorProxy:
     def _wrap_action(self, method, name):
         def wrapper(*args, **kwargs):
             try:
-                # Try original action
                 return method(*args, **kwargs)
             except Exception as e:
-                # Check for "not found" or "timeout" errors
-                if any(x in str(e).lower() for x in ["timeout", "not found", "waiting for", "no element"]):
+                # Common failure points for selectors
+                err_str = str(e).lower()
+                if any(x in err_str for x in ["timeout", "not found", "waiting for", "no element", "visible"]):
                     return self._heal_and_retry(name, *args, **kwargs)
                 raise e
         
-        # Special case: methods that return booleans or numbers (is_visible, count)
-        # These methods often FAIL SILENTLY (returning False) if the selector is wrong.
-        # We want them to trigger healing too!
+        # Methods that often return booleans/counts silently
         if name in ["is_visible", "is_hidden", "count", "is_enabled", "is_disabled"]:
             def smart_check_wrapper(*args, **kwargs):
                 val = method(*args, **kwargs)
-                # If it's False or 0, it MIGHT be because the selector is broken.
-                # Do a quick check: does the element exist at all?
                 if (name == "count" and val == 0) or (name == "is_visible" and not val):
-                    # We try to "heal" if we think the selector is truly missing
                     try:
+                        # Only try to heal if the original check fails
                         return self._heal_and_retry(name, *args, **kwargs)
                     except:
-                        return val # Fallback to original silent failure if healing fails
+                        return val 
                 return val
             return smart_check_wrapper
             
@@ -241,22 +234,20 @@ class SmartLocatorProxy:
 
     def _heal_and_retry(self, name, *args, **kwargs):
         """Internal logic to trigger AI healing and retry the action."""
-        print(f"[Healix] 🩹 Locator '{self._selector}' failed ({name}). Healing...")
+        print(f"[Healix] 🩹 Selector '{self._selector}' failed during '{name}'. Healing...")
         hx = _get_healix()
         
-        # Sync/Async detection
-        # For Sync API, content() is a string. For Async, it's a coroutine.
-        is_async = asyncio.iscoroutinefunction(self._page.content)
-        if is_async:
-            raise RuntimeError("Async proxy not fully implemented yet. Use smart_locator() direct.")
-
+        # We assume sync for now as per ParaBank usage
         html = self._page.content()
         browser = self._page.context.browser.browser_type.name
+        
+        print(f"[Healix] 🤖 Analyzing DOM with AI...")
         fix = hx.get_fix_sync(self._selector, html, browser=browser, error_msg=f"Element not found during {name}")
         
         if fix and fix.get("conf", 0) > 0.6:
             new_sel = fix["selector"]
             print(f"[Healix] ✨ Found fix: {new_sel} (conf: {fix['conf']})")
+            print(f"[Healix] 📝 Root Cause: {fix.get('explanation', 'N/A')}")
             
             hx.log_proposal(self._selector, new_sel, {"file": "PageObject", "line": 0}, fix.get("explanation"))
             hx._save_cache(self._selector, new_sel, browser=browser)
@@ -264,10 +255,10 @@ class SmartLocatorProxy:
             # Update internal locator and retry the call
             self._locator = self._page.locator(new_sel)
             new_method = getattr(self._locator, name)
-            print(f"[Healix] 🔄 Retrying {name} with new selector...")
+            print(f"[Healix] 🔄 Retrying '{name}' with healed selector...")
             return new_method(*args, **kwargs)
         
-        raise RuntimeError(f"[Healix] Failed to heal selector: {self._selector}")
+        raise RuntimeError(f"[Healix] ❌ Failed to heal selector: {self._selector}")
 
 _hx = None
 
