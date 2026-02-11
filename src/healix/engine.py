@@ -30,8 +30,9 @@ class Healix:
                 return {}
         return {}
 
-    def _save_cache(self, selector, fixed_selector):
-        self.cache[selector] = fixed_selector
+    def _save_cache(self, selector, fixed_selector, browser="default"):
+        cache_key = f"{browser}::{selector}"
+        self.cache[cache_key] = fixed_selector
         with open(self.cache_file, 'w') as f:
             json.dump(self.cache, f, indent=2)
 
@@ -68,16 +69,22 @@ class Healix:
         return "\n".join(clean_tags)[:8000]
 
     async def get_fix(self, broken_selector, html, browser="chromium", error_msg=""):
-        if broken_selector in self.cache and not error_msg:
-            return {"selector": self.cache[broken_selector], "conf": 1.0, "explanation": "Cache hit"}
+        cache_key = f"{browser}::{broken_selector}"
+        if cache_key in self.cache and not error_msg:
+            return {"selector": self.cache[cache_key], "conf": 1.0, "explanation": "Cache hit"}
 
         dom = self.get_clean_dom(html)
         prompt = (
-            f"QA Failure in {browser} on: {broken_selector}\n"
-            f"Error: {error_msg}\n"
-            f"DOM Elements:\n{dom}\n"
-            "Identify the correct selector and provide a brief Root Cause Analysis (RCA).\n"
-            "Return JSON: {\"selector\": \"string\", \"explanation\": \"string\", \"conf\": float}"
+            f"A Playwright test failed in {browser}.\n"
+            f"The broken selector was: {broken_selector}\n"
+            f"The error was: {error_msg}\n\n"
+            f"Here are the ACTUAL elements currently on the page:\n{dom}\n\n"
+            "RULES:\n"
+            "1. You MUST return a CSS selector that matches one of the elements listed above.\n"
+            "2. Do NOT invent selectors. Do NOT modify the broken selector. Pick from the DOM.\n"
+            "3. Prefer: id > data-testid > name > aria-label > class.\n"
+            "4. Provide a brief Root Cause Analysis explaining why the original selector broke.\n\n"
+            "Return JSON ONLY: {\"selector\": \"string\", \"explanation\": \"string\", \"conf\": float}"
         )
         
         try:
@@ -119,11 +126,27 @@ async def smart_click(page, selector, text_to_fill=None, timeout=2000):
                 if text_to_fill: await page.fill(new_sel, text_to_fill, timeout=timeout)
                 else: await page.click(new_sel, timeout=timeout)
                 hx.log_proposal(selector, new_sel, file_info, fix.get("explanation"))
-                hx._save_cache(selector, new_sel)
+                hx._save_cache(selector, new_sel, browser=browser)
                 print(f"[Healix] ✅ Fixed with: {new_sel}")
             except Exception as heal_err:
-                print(f"[Healix] ❌ Healed selector also failed: {str(heal_err)[:80]}")
-                raise e
+                print(f"[Healix] ❌ Healed selector failed: {str(heal_err)[:80]}")
+                print(f"[Healix] Plan B: Re-querying AI with failure feedback...")
+                retry = await hx.get_fix(selector, html, browser=browser,
+                    error_msg=f"Your suggestion '{new_sel}' failed: {str(heal_err)[:60]}")
+                if retry and retry.get("conf", 0) > 0.6:
+                    retry_sel = retry["selector"]
+                    print(f"[Healix] Plan B selector: {retry_sel} (conf: {retry.get('conf')})")
+                    try:
+                        if text_to_fill: await page.fill(retry_sel, text_to_fill, timeout=timeout)
+                        else: await page.click(retry_sel, timeout=timeout)
+                        hx.log_proposal(selector, retry_sel, file_info, retry.get("explanation"))
+                        hx._save_cache(selector, retry_sel, browser=browser)
+                        print(f"[Healix] ✅ Plan B succeeded with: {retry_sel}")
+                    except:
+                        print(f"[Healix] ❌ Plan B also failed. Hard failure.")
+                        raise e
+                else:
+                    raise e
         else:
             print(f"[Healix] No viable fix found (conf: {fix.get('conf') if fix else 'N/A'})")
             raise e
