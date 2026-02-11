@@ -162,6 +162,7 @@ class HealixPageProxy:
     """Proxies a Playwright Page to intercept .locator() calls."""
     def __init__(self, page):
         self._page = page
+        print(f"\n[Healix] 🚀 Page patched! Zero-Refactor healing is ACTIVE.")
 
     def locator(self, selector, **kwargs):
         loc = self._page.locator(selector, **kwargs)
@@ -177,7 +178,13 @@ class SmartLocatorProxy:
         self._page = page
         self._selector = selector
 
+    @property
+    def __class__(self):
+        # Trick isinstance() checks (essential for expect() compatibility)
+        return self._locator.__class__
+
     def __getattr__(self, name):
+        # Pass through internal playwright fields (_impl, etc)
         attr = getattr(self._locator, name)
         
         # If accessing properties like .first, .last, .nth(), wrap the result
@@ -224,13 +231,13 @@ class SmartLocatorProxy:
 
     def _heal_and_retry(self, name, *args, **kwargs):
         """Internal logic to trigger AI healing and retry the action."""
-        print(f"[Healix] Locator '{self._selector}' failed ({name}). Healing...")
+        print(f"[Healix] 🩹 Locator '{self._selector}' failed ({name}). Healing...")
         hx = _get_healix()
         
         # Sync/Async detection
+        # For Sync API, content() is a string. For Async, it's a coroutine.
         is_async = asyncio.iscoroutinefunction(self._page.content)
         if is_async:
-            # Future expansion for async proxy
             raise RuntimeError("Async proxy not fully implemented yet. Use smart_locator() direct.")
 
         html = self._page.content()
@@ -239,7 +246,7 @@ class SmartLocatorProxy:
         
         if fix and fix.get("conf", 0) > 0.6:
             new_sel = fix["selector"]
-            print(f"[Healix] Found fix: {new_sel} (conf: {fix['conf']})")
+            print(f"[Healix] ✨ Found fix: {new_sel} (conf: {fix['conf']})")
             
             hx.log_proposal(self._selector, new_sel, {"file": "PageObject", "line": 0}, fix.get("explanation"))
             hx._save_cache(self._selector, new_sel, browser=browser)
@@ -247,10 +254,10 @@ class SmartLocatorProxy:
             # Update internal locator and retry the call
             self._locator = self._page.locator(new_sel)
             new_method = getattr(self._locator, name)
-            print(f"[Healix] Retrying {name} with new selector...")
+            print(f"[Healix] 🔄 Retrying {name} with new selector...")
             return new_method(*args, **kwargs)
         
-        raise RuntimeError(f"Healix could not find a fix for selector: {self._selector}")
+        raise RuntimeError(f"[Healix] Failed to heal selector: {self._selector}")
 
 _hx = None
 
