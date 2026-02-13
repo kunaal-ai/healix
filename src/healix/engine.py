@@ -6,6 +6,7 @@ import traceback
 import requests
 import subprocess
 from playwright.async_api import async_playwright
+from playwright.sync_api import expect
 from bs4 import BeautifulSoup
 
 class HealixError(Exception):
@@ -24,12 +25,140 @@ class Healix:
     def __init__(self, model="qwen2.5-coder:7b"):
         self.model = model
         self.ollama_url = "http://localhost:11434/api/generate"
-        self.data_dir = os.path.join(os.path.expanduser("~"), ".healix")
+        # Prefer project-local .healix if we are in a project
+        project_root = None
+        current = os.getcwd()
+        for marker in ['pyproject.toml', 'requirements.txt', 'setup.py', '.git']:
+            if os.path.exists(os.path.join(current, marker)):
+                project_root = current
+                break
+        if project_root:
+            self.data_dir = os.path.join(project_root, ".healix")
+        else:
+            self.data_dir = os.path.join(os.path.expanduser("~"), ".healix")
         self.cache_file = os.path.join(self.data_dir, "cache.json")
         self.report_file = os.path.join(self.data_dir, "proposals.json")
+        self._healed_selectors = {}
         self._ensure_dirs()
         self.cache = self._load_cache()
         self._check_ollama()
+
+    def _ensure_dirs(self):
+        os.makedirs(self.data_dir, exist_ok=True)
+
+    def _load_cache(self):
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+        return {}
+
+    def _save_cache(self, selector, fixed_selector, browser="default", context_used=False):
+        cache_key = f"{browser}::{selector}"
+        if context_used:
+            fixed_selector = f"CTX:{fixed_selector}"
+        self.cache[cache_key] = fixed_selector
+        with open(self.cache_file, 'w') as f:
+            json.dump(self.cache, f, indent=2)
+
+    def log_proposal(self, original, fixed, file_info, reason=""):
+        proposals = []
+        if os.path.exists(self.report_file):
+            try:
+                with open(self.report_file, 'r') as f:
+                    proposals = json.load(f)
+            except Exception:
+                proposals = []
+        proposals.append({
+            "file": file_info.get("file"),
+            "line": file_info.get("line"),
+            "original_selector": original,
+            "suggested_fix": fixed,
+            "reasoning": reason,
+            "status": "pending_review"
+        })
+        with open(self.report_file, 'w') as f:
+            json.dump(proposals, f, indent=2)
+
+    def get_clean_dom(self, html):
+        soup = BeautifulSoup(html, 'html.parser')
+        for tag in soup(["script", "style", "svg", "path", "iframe", "meta", "link", "noscript"]):
+            tag.decompose()
+        clean_tags = []
+        text_elements = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'div', 'li', 'td', 'option']
+        interactive_elements = ['input', 'button', 'a', 'label', 'form', 'select', 'textarea']
+        for tag in soup.find_all(text_elements + interactive_elements):
+            allowed = ['id', 'class', 'name', 'type', 'placeholder', 'aria-label', 'data-testid', 'role', 'value', 'title', 'alt']
+            tag.attrs = {k: v for k, v in tag.attrs.items() if k in allowed}
+            if tag.name in interactive_elements:
+                clean_tags.append(str(tag))
+            elif tag.name in text_elements:
+                text = tag.get_text(strip=True)
+                if text:
+                    clean_tags.append(f"<{tag.name} {' '.join(f'{k}={v}' for k,v in tag.attrs.items())}>{text}</{tag.name}>")
+        return "\n".join(clean_tags)[:15000]
+
+    async def get_fix(self, broken_selector, html, browser="chromium", error_msg="", target_context="", expected_text="", test_context=""):
+        return self.get_fix_sync(broken_selector, html, browser, error_msg, target_context, expected_text, test_context)
+
+    def get_fix_sync(self, broken_selector, html, browser="chromium", error_msg="", target_context="", expected_text="", test_context=""):
+        cache_key = f"{browser}::{broken_selector}"
+        if cache_key in self.cache and not error_msg:
+            return {"selector": self.cache[cache_key], "conf": 1.0, "explanation": "Cache hit"}
+        dom = self.get_clean_dom(html)
+        context_block = ""
+        if target_context:
+            context_block = f"TARGET CONTEXT (What the test wants):\n{target_context}\n\n"
+        if expected_text:
+            context_block += f"ASSERTION: The test expects this element to HAVE the text: \"{expected_text}\". Return a selector for an element that CONTAINS this text.\n\n"
+        if test_context:
+            context_block += f"TEST CONTEXT: The test suggests: \"{test_context}\". Prefer selectors scoped to that area (e.g. #footerPanel for footer, #headerPanel for header).\n\n"
+        prompt = (
+            f"A Playwright test failed in {browser}.\n"
+            f"The broken selector was: {broken_selector}\n"
+            f"The error was: {error_msg}\n\n"
+            f"{context_block}"
+            f"Here are the ACTUAL elements currently on the page:\n{dom}\n\n"
+            "RULES:\n"
+            "1. You MUST return a CSS selector that matches ONE of the elements listed above.\n"
+            "2. STRICT MODE: The selector must match EXACTLY ONE element. If a simple selector would match multiple, SCOPE IT (e.g. #footerPanel a[href*='about'], #headerPanel a).\n"
+            "3. Do NOT invent selectors. Use id, class, [href], [aria-label], tag names. Prefer UNIQUE selectors.\n"
+            "4. FOCUS on TARGET CONTEXT, ASSERTION, or TEST CONTEXT.\n"
+            "5. CRITICAL: Return ONLY valid document.querySelector/CSS. Do NOT use :contains() or jQuery.\n\n"
+            "Return JSON ONLY: {\"selector\": \"string\", \"explanation\": \"string\", \"conf\": float}"
+        )
+        raw_response = ""
+        try:
+            r = requests.post(self.ollama_url, json={
+                "model": self.model, "prompt": prompt, "stream": False, "format": "json"
+            }, timeout=60)
+            r.raise_for_status()
+            raw_response = (r.json().get("response") or "").strip()
+            if not raw_response:
+                return None
+            if "```json" in raw_response:
+                raw_response = raw_response.split("```json")[1].split("```")[0].strip()
+            if "```" in raw_response:
+                raw_response = raw_response.split("```")[0].strip()
+            data = json.loads(raw_response)
+            if not isinstance(data, dict):
+                return None
+            data.setdefault("selector", "")
+            data.setdefault("explanation", "")
+            if "conf" not in data or not isinstance(data["conf"], (int, float)):
+                data["conf"] = 0.7
+            sel = data["selector"]
+            if ":contains(" in sel:
+                import re as _re
+                m = _re.search(r"^(\w*)\s*:contains\s*\(\s*['\"]([^'\"]+)['\"]\s*\)\s*$", sel.strip())
+                if m:
+                    tag, text = m.group(1) or "*", m.group(2)
+                    data["selector"] = f"{tag} >> text={text}" if tag != "*" else f"text={text}"
+            return data
+        except Exception:
+            return None
 
     @staticmethod
     def patch(page):
@@ -94,24 +223,10 @@ class SmartAssertionProxy:
             try:
                 return method(*args, **kwargs)
             except (AssertionError, TimeoutError) as e:
-                # If assertion fails, try to heal the locator
-                print(f"[Healix] [HEAL] Assertion '{name}' failed. Attempting to heal locator...")
+                # Heal and retry; _heal_and_retry performs the expect.* retry and returns its result
                 try:
-                    # Trigger healing on the locator
-                    # We pass a dummy method to _heal_and_retry to trigger the lookup
-                    self._smart_locator._heal_and_retry(f"expect.{name}")
-                    
-                    # If healing succeeded, the smart locator's internal _locator is updated.
-                    # We need to recreate the assertion with the new locator.
-                    from playwright.sync_api import expect as original_expect
-                    # Access the original expect relative to where we patched it, or just use the internal locator
-                    new_assertion = original_expect(self._smart_locator._locator)
-                    new_method = getattr(new_assertion, name)
-                    
-                    print(f"[Healix] [INFO] Retrying assertion '{name}' with healed locator...")
-                    return new_method(*args, **kwargs)
+                    return self._smart_locator._heal_and_retry(f"expect.{name}", *args, **kwargs)
                 except Exception as heal_error:
-                    # If healing fails or retry fails, raise the original error
                     print(f"[Healix] [ERROR] Healing failed during assertion: {heal_error}")
                     raise e
         return wrapper
@@ -122,116 +237,31 @@ class HealixPageProxy:
         self._page = page
         print(f"\n[Healix] [INFO] Zero-Refactor healing is ACTIVE.")
 
-    def _ensure_dirs(self):
-        os.makedirs(self.data_dir, exist_ok=True)
-
-    def _load_cache(self):
-        if os.path.exists(self.cache_file):
-            try:
-                with open(self.cache_file, 'r') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-
-    def _save_cache(self, selector, fixed_selector, browser="default"):
-        cache_key = f"{browser}::{selector}"
-        self.cache[cache_key] = fixed_selector
-        with open(self.cache_file, 'w') as f:
-            json.dump(self.cache, f, indent=2)
-
-    def log_proposal(self, original, fixed, file_info, reason=""):
-        proposals = []
-        if os.path.exists(self.report_file):
-            with open(self.report_file, 'r') as f:
-                try: proposals = json.load(f)
-                except: proposals = []
-        
-        proposals.append({
-            "file": file_info.get("file"),
-            "line": file_info.get("line"),
-            "original_selector": original,
-            "suggested_fix": fixed,
-            "reasoning": reason,
-            "status": "pending_review"
-        })
-        
-        with open(self.report_file, 'w') as f:
-            json.dump(proposals, f, indent=2)
-
-    def get_clean_dom(self, html):
-        soup = BeautifulSoup(html, 'html.parser')
-        for tag in soup(["script", "style", "svg", "path", "iframe", "meta", "link", "noscript"]):
-            tag.decompose()
-        
-        clean_tags = []
-        # Semantic elements often used for text assertions
-        text_elements = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'div', 'li', 'td', 'option']
-        # Interactive elements
-        interactive_elements = ['input', 'button', 'a', 'label', 'form', 'select', 'textarea']
-        
-        for tag in soup.find_all(text_elements + interactive_elements):
-            allowed = ['id', 'class', 'name', 'type', 'placeholder', 'aria-label', 'data-testid', 'role', 'value', 'title', 'alt']
-            # Keep only allowed attributes
-            tag.attrs = {k: v for k, v in tag.attrs.items() if k in allowed}
-            
-            # For interactive elements, we want the outer HTML (attributes are key)
-            if tag.name in interactive_elements:
-                clean_tags.append(str(tag))
-            # For text elements, we ONLY want them if they satisfy the search or are close to it
-            elif tag.name in text_elements:
-                text = tag.get_text(strip=True)
-                if text: # Only keep text nodes that are not empty
-                    # Simplified representation for token efficiency: <tag attrs...>text</tag>
-                    clean_tags.append(f"<{tag.name} {' '.join(f'{k}={v}' for k,v in tag.attrs.items())}>{text}</{tag.name}>")
-            
-        return "\n".join(clean_tags)[:15000] # Increased token limit for text context
-
-    async def get_fix(self, broken_selector, html, browser="chromium", error_msg=""):
-        return self.get_fix_sync(broken_selector, html, browser, error_msg)
-
-    def get_fix_sync(self, broken_selector, html, browser="chromium", error_msg=""):
-        cache_key = f"{browser}::{broken_selector}"
-        if cache_key in self.cache and not error_msg:
-            return {"selector": self.cache[cache_key], "conf": 1.0, "explanation": "Cache hit"}
-
-        dom = self.get_clean_dom(html)
-        prompt = (
-            f"A Playwright test failed in {browser}.\n"
-            f"The broken selector was: {broken_selector}\n"
-            f"The error was: {error_msg}\n\n"
-            f"Here are the ACTUAL elements currently on the page:\n{dom}\n\n"
-            "RULES:\n"
-            "1. You MUST return a CSS selector that matches one of the elements listed above.\n"
-            "2. Do NOT invent selectors. Pick from the DOM provided.\n"
-            "3. FOCUS on the target element. If the selector is '#div h1', find the 'h1'.\n"
-            "4. Look for semantic matches: Text content, Aria labels, IDs, Classes.\n"
-            "5. Provide a brief Root Cause Analysis explaining why the original selector broke.\n\n"
-            "Return JSON ONLY: {\"selector\": \"string\", \"explanation\": \"string\", \"conf\": float}"
-        )
-        
-        try:
-            r = requests.post(self.ollama_url, json={
-                "model": self.model, "prompt": prompt, "stream": False, "format": "json"
-            }, timeout=30)
-            
-            raw_response = r.json().get("response", "{}").strip()
-            if "```json" in raw_response:
-                raw_response = raw_response.split("```json")[1].split("```")[0].strip()
-            
-            return json.loads(raw_response)
-        except Exception:
-            return None
-
-class HealixPageProxy:
-    """Proxies a Playwright Page to intercept .locator() calls."""
-    def __init__(self, page):
-        self._page = page
-        print(f"\n[Healix] [INFO] Zero-Refactor healing is ACTIVE.")
-
     def locator(self, selector, **kwargs):
+        hx = _get_healix()
+        new_sel = None
+        session = getattr(hx, "_healed_selectors", None) or {}
+        # Plugin may set module-level fallback when fixture re-runs after retry
+        _pytest_healed = getattr(sys.modules.get(__name__, object()), "_pytest_healed_selectors", None) or {}
+        if selector in session:
+            new_sel = session[selector]
+        elif selector in _pytest_healed:
+            new_sel = _pytest_healed[selector]
+        browser_name = self._page.context.browser.browser_type.name
+        cache_key = f"{browser_name}::{selector}"
+        if not new_sel and cache_key in hx.cache:
+            new_sel = hx.cache[cache_key]
+        context_mode = False
+        if new_sel:
+            if new_sel.startswith("CTX:"):
+                print(f"[Healix] [INFO] Using healed selector for '{selector}' -> {new_sel[4:]!r} (context_mode)")
+                new_sel = new_sel[4:]
+                context_mode = True
+            else:
+                print(f"[Healix] [INFO] Using healed selector for '{selector}' -> {new_sel!r}")
+            selector = new_sel
         loc = self._page.locator(selector, **kwargs)
-        return SmartLocatorProxy(loc, self._page, selector)
+        return SmartLocatorProxy(loc, self._page, selector, context_mode=context_mode)
 
     # Intercept high-level actions to ensure they are healed too!
     def click(self, selector, **kwargs):
@@ -266,10 +296,11 @@ class HealixPageProxy:
 
 class SmartLocatorProxy:
     """Proxies a Playwright Locator to add transparent self-healing."""
-    def __init__(self, locator, page, selector):
+    def __init__(self, locator, page, selector, context_mode=False):
         self._locator = locator
         self._page = page
         self._selector = selector
+        self._context_mode = context_mode
 
     @property
     def __class__(self):
@@ -277,11 +308,20 @@ class SmartLocatorProxy:
         return self._locator.__class__
 
     def __call__(self, *args, **kwargs):
-        return self._wrap_action(self._locator, "__call__")(*args, **kwargs)
+        # When chaining (context_mode) or when inner Locator isn't callable, return self so proxy() is a no-op
+        if getattr(self, "_context_mode", False):
+            return self
+        if not callable(self._locator):
+            return self
+        return self._wrap_action(self._locator.__call__, "__call__")(*args, **kwargs)
 
     def __getattr__(self, name):
-        if name in ["_locator", "_page", "_selector", "_wrap_action", "_heal_and_retry"]:
+        if name in ["_locator", "_page", "_selector", "_context_mode", "_wrap_action", "_heal_and_retry"]:
             return super().__getattribute__(name)
+
+        # When context_mode is set, chainable methods return self so .click() etc. run on the healed locator
+        if self._context_mode and name in ("locator", "get_by_role", "get_by_text", "get_by_label", "get_by_placeholder", "get_by_title", "get_by_alt_text", "first", "last", "nth"):
+            return self
 
         # Pass thru to original locator
         attr = getattr(self._locator, name)
@@ -326,33 +366,56 @@ class SmartLocatorProxy:
 
     def _heal_and_retry(self, name, *args, **kwargs):
         """Internal logic to trigger AI healing and retry the action."""
+        # Pass expected text from assertion args (e.g. to_have_text("Contact Us"))
+        if name.startswith("expect.") and "to_have_text" in name and args:
+            kwargs.setdefault("_expected_text", args[0] if isinstance(args[0], str) else "")
+
+        target_context = kwargs.pop("_target_context", "") or ""
+        expected_text = kwargs.pop("_expected_text", "") or ""
+
         print(f"[Healix] [HEAL] Selector '{self._selector}' failed during '{name}'. Healing...")
         hx = _get_healix()
-        
-        # We assume sync for now as per ParaBank usage
         html = self._page.content()
         browser = self._page.context.browser.browser_type.name
-        
+
         print(f"[Healix] [INFO] Analyzing DOM with AI...")
-        fix = hx.get_fix_sync(self._selector, html, browser=browser, error_msg=f"Element not found during {name}")
-        
-        if fix and fix.get("conf", 0) > 0.6:
-            new_sel = fix["selector"]
-            print(f"[Healix] [SUCCESS] Found fix: {new_sel} (conf: {fix['conf']})")
-            print(f"[Healix] [INFO] Root Cause: {fix.get('explanation', 'N/A')}")
-            
-            hx.log_proposal(self._selector, new_sel, {"file": "PageObject", "line": 0}, fix.get("explanation"))
-            hx._save_cache(self._selector, new_sel, browser=browser)
-            
-            # Update internal locator and retry the call
-            self._locator = self._page.locator(new_sel)
-            new_method = getattr(self._locator, name)
-            print(f"[Healix] [INFO] Retrying '{name}' with healed selector...")
-            return new_method(*args, **kwargs)
-        
-        raise RuntimeError(f"[Healix] [ERROR] Failed to heal selector: {self._selector}")
+        fix = hx.get_fix_sync(
+            self._selector, html, browser=browser,
+            error_msg=f"Element not found during {name}",
+            target_context=target_context or None,
+            expected_text=expected_text or None,
+        )
+
+        if not fix or fix.get("conf", 0) <= 0.6:
+            raise RuntimeError(f"[Healix] [ERROR] Failed to heal selector: {self._selector}")
+
+        new_sel = fix["selector"]
+        explanation = fix.get("explanation", "") or ""
+        context_used = "context" in explanation.lower() or "scope" in explanation.lower()
+
+        print(f"[Healix] [SUCCESS] Found fix: {new_sel} (conf: {fix['conf']})")
+        print(f"[Healix] [INFO] Root Cause: {explanation}")
+        hx.log_proposal(self._selector, new_sel, {"file": "PageObject", "line": 0}, explanation)
+        hx._save_cache(self._selector, new_sel, browser=browser, context_used=context_used)
+
+        self._locator = self._page.locator(new_sel)
+        self._selector = new_sel
+        if context_used:
+            self._context_mode = True
+
+        # Assertion: expect(loc).to_have_text("...") etc.
+        if name.startswith("expect."):
+            assertion_method = name.split(".", 1)[1]
+            print(f"[Healix] [INFO] Retrying expect.{assertion_method} with healed selector...")
+            return getattr(expect(self._locator), assertion_method)(*args, **kwargs)
+
+        new_method = getattr(self._locator, name)
+        print(f"[Healix] [INFO] Retrying '{name}' with healed selector...")
+        return new_method(*args, **kwargs)
 
 _hx = None
+# Pytest plugin sets this so healed selectors survive fixture re-run on retry
+_pytest_healed_selectors = {}
 
 def _get_healix():
     """Lazy initialization — only connects to Ollama when first needed."""
