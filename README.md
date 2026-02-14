@@ -81,6 +81,7 @@ healix/
 ├── src/healix/
 │   ├── __init__.py            # Public API (smart_click, Healix)
 │   ├── engine.py              # Core self-healing logic
+│   ├── prometheus_metrics.py  # Optional: push heal metrics to Pushgateway
 │   └── utilities/
 │       └── dom_scrubber.py    # DOM cleaning helpers
 ├── tests/
@@ -308,21 +309,58 @@ Make sure Ollama is running:
 ollama serve
 ```
 
+### Prometheus & Grafana (optional)
+
+If you already use Prometheus and Grafana, Healix can push heal metrics so you can see them on your dashboards.
+
+**Requirements:** Install `prometheus_client` and set a Pushgateway URL:
+
+```bash
+pip install prometheus-client
+export HEALIX_PUSHGATEWAY_URL="http://localhost:9091"   # or PUSHGATEWAY_URL
+```
+
+If `prometheus_client` is not installed or the URL is not set, Healix runs as usual and does not push any metrics.
+
+**Metrics:**  
+- `healix_heals_total` (counter) — labels: `test`, `retry_passed`  
+- `healix_heal_duration_seconds` (histogram) — time to heal per locator; labels: `test`  
+- `healix_heal_cache_total` (counter) — labels: `test`, `cache` (`hit` / `miss`)  
+- Job name: `healix` (grouped by run timestamp)
+
+**Example Prometheus queries (for Grafana):**
+- Total heals: `sum(healix_heals_total)`
+- Heals by test: `sum by (test) (healix_heals_total)`
+- Retry pass rate: `sum(healix_heals_total{retry_passed="true"}) / sum(healix_heals_total)`
+- p95 heal duration (s): `histogram_quantile(0.95, rate(healix_heal_duration_seconds_bucket[5m]))`
+- Cache hit rate: `sum(rate(healix_heal_cache_total{cache="hit"}[5m])) / sum(rate(healix_heal_cache_total[5m]))`
+
+Ensure Prometheus scrapes your Pushgateway (same one you use for other test metrics); then add a panel with the query above. Use **instant** or **range** query with `sum(healix_heals_total)` — do not use `increase(...)` for the total count (push-based metrics are current values).
+
+**If Grafana shows 0 but the HTML report shows heals:** After the run, check the terminal: you should see either `Healix: Pushed N metric(s) to Pushgateway.` or `Healix: Metrics not pushed - ...` / `Healix: Push failed - ...`. If metrics were not pushed, install `prometheus-client` in the same environment that runs pytest and set `HEALIX_PUSHGATEWAY_URL` (or `PUSHGATEWAY_URL`) so the test process can reach the Pushgateway. Also confirm Prometheus is scraping that Pushgateway (`job="pushgateway"` or your scrape config).
+
 ## Testing
 
 ```bash
-# Run all tests
+# Run unit tests only (no browser/Ollama required; high coverage)
+PYTHONPATH=src pytest tests/unit/ -v
+
+# Run with coverage report (unit tests; requires pytest-cov)
+PYTHONPATH=src pytest tests/unit/ --cov=healix --cov-report=term-missing
+
+# Run all tests (integration tests require Playwright browsers)
 pytest tests/
 
-# Run with coverage
-pytest tests/ --cov=src/healix --cov-report=html
-
-# Run integration tests (requires browser)
+# Run integration tests (requires browser + Ollama for healing)
 pytest tests/integration/
 ```
 
+Unit tests cover the engine (DOM cleaning, caching, get_fix_sync, install_browsers, main), the pytest plugin (selector extraction, report generation), Prometheus metrics, and the public API. Integration tests require `playwright install` and optionally Ollama for self-healing behavior.
+
 
 ## Contributing
+
+Pull requests are welcome. If you’d like to contribute:
 
 1. Fork the repository
 2. Create a feature branch
@@ -334,12 +372,44 @@ pytest tests/integration/
 
 This project is licensed under the [MIT License](LICENSE).
 
-## Known Limitations
+## Performance & efficiency
 
-- Requires Ollama running locally (cloud LLM support planned)
-- Healing accuracy depends on DOM quality — heavily obfuscated pages may need multiple retries
-- First-time healing adds latency (~2-5s per selector); cached fixes are instant
-- Currently supports `click` and `fill` actions; other Playwright actions coming soon
+I document here how Healix behaves today (before) and what I’ve already improved (after), with evidence so you can see how efficiency evolves across versions.
+
+### Before (current behaviour — evidence)
+
+| Area | Evidence | Source |
+|------|----------|--------|
+| **Heal latency (uncached)** | ~2–5 seconds per selector when AI is used | README (typical range with local Ollama) |
+| **Heal latency (cached)** | Instant (no Ollama call) | Cache hit path in `engine.py`: `get_fix_sync` returns early when `cache_key in self.cache` (line 112–113) |
+| **Ollama calls per failure** | Up to **two** calls per broken selector when the first suggestion matches multiple elements | `pytest_plugin.py` lines 219–220: second `get_fix_sync` when `count > 1` to request a scoped selector |
+| **Observability** | Only **count** of heals (success/fail); no duration or cache hit rate | `prometheus_metrics.py`: single metric `healix_heals_total` with labels `test`, `retry_passed` — no Histogram/Summary for latency or cache labels |
+| **DOM processing** | Full parse + trim to 15k chars per heal | `engine.py` `get_clean_dom()` (lines 83–106) and `get_fix_sync` (line 115) |
+
+### After (implemented — evidence)
+
+| Area | Before | After | Evidence |
+|------|--------|-------|----------|
+| **Ollama calls when count > 1** | Two full `get_fix_sync` calls (full DOM each) | One full `get_fix_sync` + one **lightweight** `get_fix_scoped_sync` (short prompt, optional 2k-char DOM snippet, 30s timeout) | `engine.py`: new `get_fix_scoped_sync()`; `pytest_plugin.py` calls it instead of second `get_fix_sync` when `count > 1` |
+| **Heal duration** | Not measured | **Measured per heal** and pushed to Prometheus | `pytest_plugin.py`: `time.perf_counter()` around heal; report entry `duration_seconds`; `prometheus_metrics.py`: `healix_heal_duration_seconds` (Histogram, buckets 0.05–60s) |
+| **Cache hit rate** | Not exposed | **Exposed** per heal and aggregated in Prometheus | Report entry `cache_hit` (true when `fix.explanation == "Cache hit"`); `prometheus_metrics.py`: `healix_heal_cache_total{test="...", cache="hit"\|"miss"}` |
+
+**New Prometheus metrics (Grafana):**
+
+- **Heal duration:** `histogram_quantile(0.95, rate(healix_heal_duration_seconds_bucket[5m]))` — p95 heal time (seconds).
+- **Cache hit rate:** `sum(rate(healix_heal_cache_total{cache="hit"}[5m])) / sum(rate(healix_heal_cache_total[5m]))` — proportion of heals served from cache.
+
+## Upcoming improvements (my backlog)
+
+I keep this list so I can come back and tackle items one by one. When I finish one, I’ll move it to the Roadmap or Changelog and note it here.
+
+1. **Smaller DOM sent to the model** — Trim or sample the DOM more aggressively before sending to Ollama (e.g. 10k chars, or only elements near the broken selector) to cut latency and tokens per heal.
+2. **Async cache writes** — Write `cache.json` in a background thread or after the run so the test thread doesn’t block on disk I/O; reduces perceived heal latency.
+3. **Single Ollama call when count > 1** — Try to get a “match exactly one” selector in the first prompt (e.g. stronger RULES in the prompt) so the scoped follow-up is needed less often; measure with the new metrics.
+4. **DOM clean duration metric** — Time `get_clean_dom()` and expose it (e.g. in report or Prometheus) so I can see if DOM processing is a bottleneck.
+5. **Optional: faster parser** — Try `lxml` as the BeautifulSoup parser for `get_clean_dom()` and benchmark; fall back to `html.parser` if not installed.
+6. **Retry budget / backoff** — If a heal fails or confidence is low, consider a single retry with a shorter prompt or different temperature before giving up; document behaviour in README.
+7. **Heal summary in terminal** — At session end, print a one-line summary (e.g. “N heals, X from cache, avg Ys”) so I can see efficiency without opening Grafana.
 
 ## Support
 
@@ -351,5 +421,7 @@ This project is licensed under the [MIT License](LICENSE).
 - [ ] Support for more AI models (OpenAI, Anthropic)
 - [ ] Visual regression testing
 - [ ] Multi-browser support expansion
-- [ ] Performance optimization for large-scale testing
+- [x] **Performance optimization** — lightweight scoped Ollama call when count > 1; heal duration & cache hit metrics (see [Performance & efficiency](#performance--efficiency))
 - [ ] Plugin system for custom healing strategies
+
+For more granular next steps I’m working through, see [Upcoming improvements (my backlog)](#upcoming-improvements-my-backlog) above.

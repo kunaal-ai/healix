@@ -1,11 +1,9 @@
-import asyncio
 import json
 import os
 import sys
 import traceback
 import requests
 import subprocess
-from playwright.async_api import async_playwright
 from playwright.sync_api import expect
 from bs4 import BeautifulSoup
 
@@ -97,7 +95,14 @@ class Healix:
             elif tag.name in text_elements:
                 text = tag.get_text(strip=True)
                 if text:
-                    clean_tags.append(f"<{tag.name} {' '.join(f'{k}={v}' for k,v in tag.attrs.items())}>{text}</{tag.name}>")
+                    attrs_list = []
+                    for k, v in tag.attrs.items():
+                        if isinstance(v, list):
+                            v = " ".join(v)
+                        attrs_list.append(f'{k}="{v}"')
+                    attrs = ' '.join(attrs_list)
+                    open_tag = f"<{tag.name} {attrs}>" if attrs else f"<{tag.name}>"
+                    clean_tags.append(f"{open_tag}{text}</{tag.name}>")
         return "\n".join(clean_tags)[:15000]
 
     async def get_fix(self, broken_selector, html, browser="chromium", error_msg="", target_context="", expected_text="", test_context=""):
@@ -160,6 +165,48 @@ class Healix:
         except Exception:
             return None
 
+    def get_fix_scoped_sync(self, broken_selector, previous_selector, match_count, browser, html=""):
+        """
+        Lightweight second call when previous_selector matched match_count > 1.
+        Uses a short prompt (no full DOM) to get a scoped selector — faster than a full get_fix_sync.
+        """
+        if match_count <= 1:
+            return None
+        # Minimal prompt: no full DOM to reduce latency and tokens
+        context = ""
+        if html:
+            dom = self.get_clean_dom(html)
+            context = "\nRelevant snippet (first 2000 chars):\n" + dom[:2000]
+        prompt = (
+            f"The selector \"{previous_selector}\" matched {match_count} elements on the page.\n"
+            f"Return a CSS selector that matches EXACTLY ONE element by scoping "
+            f"(e.g. add parent id like #footerPanel a, or use [href='...'], :nth-of-type(1)).\n"
+            f"Broken selector was: {broken_selector}. Browser: {browser}.{context}\n\n"
+            "Return JSON ONLY: {\"selector\": \"string\", \"explanation\": \"string\", \"conf\": float}"
+        )
+        try:
+            r = requests.post(self.ollama_url, json={
+                "model": self.model, "prompt": prompt, "stream": False, "format": "json"
+            }, timeout=30)
+            r.raise_for_status()
+            raw_response = (r.json().get("response") or "").strip()
+            if not raw_response:
+                return None
+            if "```json" in raw_response:
+                raw_response = raw_response.split("```json")[1].split("```")[0].strip()
+            if "```" in raw_response:
+                raw_response = raw_response.split("```")[0].strip()
+            data = json.loads(raw_response)
+            if not isinstance(data, dict):
+                return None
+            data.setdefault("selector", "")
+            data.setdefault("explanation", "")
+            if "conf" not in data or not isinstance(data["conf"], (int, float)):
+                data["conf"] = 0.7
+            return data
+        except Exception:
+            return None
+
     @staticmethod
     def patch(page):
         """
@@ -197,10 +244,10 @@ def _patch_expect():
         return
 
     def smart_expect(actual, **kwargs):
-        assertion = original_expect(actual, **kwargs)
-        if isinstance(actual, SmartLocatorProxy):
+        if type(actual) is SmartLocatorProxy:
+            assertion = original_expect(actual._locator, **kwargs)
             return SmartAssertionProxy(assertion, actual)
-        return assertion
+        return original_expect(actual, **kwargs)
 
     smart_expect._is_healix_patched = True
     playwright.sync_api.expect = smart_expect

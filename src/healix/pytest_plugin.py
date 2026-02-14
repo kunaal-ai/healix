@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime
 
 import pytest
@@ -50,29 +51,17 @@ def _healix_emit(msg):
         pass
 
 
-def _extract_selector_from_error(report):
-    """Extract the first locator selector from a failure message."""
-    if not report or not getattr(report, "longrepr", None):
-        return None
-    text = str(report.longrepr)
-    # "waiting for locator('...')" or locator(\"...\")
-    m = re.search(r"waiting for locator\s*\(\s*['\"]([^'\"]+)['\"]", text, re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
-    m = re.search(r"locator\s*\(\s*['\"]([^'\"]+)['\"]", text, re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
-    return None
-
-
 def _extract_all_selectors_from_error(report):
     """Extract all locator selectors from the failure (e.g. chained)."""
     if not report or not getattr(report, "longrepr", None):
         return []
     text = str(report.longrepr)
-    # Match locator('...') or locator("...") - all occurrences
-    pattern = re.compile(r"locator\s*\(\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
-    return list(dict.fromkeys(m.group(1).strip() for m in pattern.finditer(text)))
+    # Match locator('...') or locator("...")
+    # non-greedy match until same closing quote
+    selectors = []
+    for match in re.finditer(r"locator\s*\(\s*(['\"])(.*?)\1\s*\)", text):
+        selectors.append(match.group(2))
+    return list(dict.fromkeys(selectors))
 
 
 def _extract_context_from_error(report):
@@ -215,6 +204,7 @@ def pytest_exception_interact(report, node):
     healed = {}
     report_indices_this_round = []
     for sel in selectors:
+        t0 = time.perf_counter()
         fix = hx.get_fix_sync(
             sel, html, browser=browser,
             error_msg=report.longreprtext[:500] if getattr(report, "longreprtext", None) else "",
@@ -229,16 +219,13 @@ def pytest_exception_interact(report, node):
             continue
         count = real_page.locator(new_sel).count()
         if count > 1:
-            fix2 = hx.get_fix_sync(
-                sel, html, browser=browser,
-                error_msg=f"Selector must match exactly ONE element; '{new_sel}' matched {count}. Scope it (e.g. #footerPanel a, #headerPanel a).",
-                target_context=target_context or None,
-                expected_text=expected_text or None,
-                test_context=test_context or None,
-            )
+            # Lightweight scoped call (no full DOM) — fewer tokens, faster than second get_fix_sync
+            fix2 = hx.get_fix_scoped_sync(sel, new_sel, count, browser, html=html)
             if fix2 and fix2.get("conf", 0) > 0.6:
                 new_sel = fix2.get("selector", "").strip()
                 count = real_page.locator(new_sel).count()
+        duration_seconds = time.perf_counter() - t0
+        cache_hit = (fix.get("explanation") or "").strip().lower() == "cache hit"
         if count == 1:
             expl = (fix.get("explanation") or "").lower()
             report_text = (getattr(report, "longreprtext", None) or str(getattr(report, "longrepr", "") or "")).lower()
@@ -273,6 +260,8 @@ def pytest_exception_interact(report, node):
                 "confidence": fix.get("conf"),
                 "explanation": (fix.get("explanation") or "")[:500],
                 "timestamp": datetime.utcnow().isoformat() + "Z",
+                "duration_seconds": round(duration_seconds, 3),
+                "cache_hit": cache_hit,
             })
             report_indices_this_round.append(len(_healix_report_entries) - 1)
     if healed:
@@ -280,9 +269,7 @@ def pytest_exception_interact(report, node):
         _healix_emit(_healix_c("33", "  [4/4] Retrying test with healed locator(s)..."))
         # Add a section to the report so failure output shows Healix activity (visible without -s)
         try:
-            from healix.engine import _get_healix
-            _hx = _get_healix()
-            data_dir = getattr(_hx, "data_dir", ".healix")
+            data_dir = getattr(hx, "data_dir", ".healix")
             lines = ["Healix healed locator(s) and created reports (no code was changed)."]
             for broken, suggested in healed.items():
                 lines.append(f"  Broken: {broken}")
@@ -292,9 +279,13 @@ def pytest_exception_interact(report, node):
             report.sections.append(("Healix", "\n".join(lines)))
         except Exception:
             pass
-    if healed and not getattr(item, "_healix_retried", False):
-        item._healix_retried = True
-        item._healix_report_indices = report_indices_this_round
+    # Allow up to 2 retries so we can heal multiple selectors in the same test (e.g. line 14 then line 15)
+    max_retries = 2
+    retry_count = getattr(item, "_healix_retry_count", 0)
+    if healed and retry_count < max_retries:
+        item._healix_retry_count = retry_count + 1
+        existing_indices = getattr(item, "_healix_report_indices", [])
+        item._healix_report_indices = existing_indices + report_indices_this_round
         try:
             item.runtest()
             # Retry passed: update report so pytest shows test as passed
@@ -460,6 +451,18 @@ def pytest_sessionfinish(session, exitstatus):
         report_html_path = os.path.join(data_dir, "healix_report.html")
         _generate_healix_report_html(_healix_report_entries, report_html_path)
 
+        # Push to Prometheus Pushgateway if configured (prometheus_client + URL set)
+        try:
+            from healix.prometheus_metrics import push_healix_metrics
+            n_pushed, push_err = push_healix_metrics(_healix_report_entries)
+            if n_pushed:
+                _healix_emit(_healix_c("36", "  Healix: Pushed %d metric(s) to Pushgateway." % n_pushed))
+            elif push_err and _healix_report_entries:
+                _healix_emit(_healix_c("33", "  Healix: Metrics not pushed - %s" % push_err))
+        except Exception as e:
+            if _healix_report_entries:
+                _healix_emit(_healix_c("33", "  Healix: Push failed - %s" % (str(e)[:80])))
+
         if _healix_report_entries:
             n = len(_healix_report_entries)
             passed = sum(1 for e in _healix_report_entries if e.get("retry_passed") is True)
@@ -474,8 +477,6 @@ def pytest_sessionfinish(session, exitstatus):
             box = _healix_box(summary_lines)
             # Green if any retry passed, else cyan
             colored = _healix_c("32", box) if passed else _healix_c("36", box)
-            summary = "\n" + colored + "\n"
-            print(summary)
-            _healix_emit(summary.strip())
+            _healix_emit("\n" + colored + "\n")
     except Exception:
         pass

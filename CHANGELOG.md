@@ -1,9 +1,58 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+I document all notable changes to Healix here.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Upcoming improvements (backlog)
+
+I keep this list in the repo so I can pick items off one by one. When I ship one, I’ll move it into a release section below.
+
+1. **Smaller DOM sent to the model** — Trim/sample DOM more before Ollama to cut latency and tokens.
+2. **Async cache writes** — Write cache in the background so the test thread doesn’t block on disk.
+3. **Stronger first prompt** — Improve “match exactly one” in the first call so the scoped follow-up is needed less often.
+4. **DOM clean duration metric** — Time `get_clean_dom()` and expose it to see if it’s a bottleneck.
+5. **Optional: lxml parser** — Benchmark `lxml` for DOM cleaning; keep `html.parser` as fallback.
+6. **Retry budget / backoff** — One retry with shorter prompt or different temp when confidence is low; document in README.
+7. **Heal summary in terminal** — One-line session summary (e.g. N heals, X from cache, avg Ys) without opening Grafana.
+
+---
+
+## [0.1.29] - (performance & efficiency)
+
+### Performance & efficiency (implemented)
+
+- **Fewer Ollama calls when first suggestion matches multiple elements**
+  - **Before:** Two full `get_fix_sync` calls (full DOM, 60s timeout each).
+  - **After:** One full `get_fix_sync` + one **lightweight** `get_fix_scoped_sync` (short prompt, optional 2k-char DOM snippet, 30s timeout). Reduces tokens and latency for the second call.
+  - **Evidence:** `engine.py`: new `get_fix_scoped_sync()`; `pytest_plugin.py` calls it when `count > 1` instead of a second `get_fix_sync`.
+
+- **Heal duration and cache hit rate in Prometheus/Grafana**
+  - **Before:** Only `healix_heals_total` (count by test/retry_passed); no duration or cache metrics.
+  - **After:** `healix_heal_duration_seconds` (Histogram, per-test), `healix_heal_cache_total{test, cache="hit"|"miss"}`. Each report entry includes `duration_seconds` and `cache_hit`; session finish pushes them to Pushgateway.
+  - **Evidence:** `pytest_plugin.py`: `time.perf_counter()` around heal, report fields `duration_seconds`, `cache_hit`; `prometheus_metrics.py`: Histogram + cache counter, documented in README with example Grafana queries.
+
+### Added
+
+- **Performance metrics:** Heal duration (seconds) and cache hit/miss per heal, pushed to Prometheus when Pushgateway is configured. See README “Prometheus & Grafana” and “Performance & efficiency” for queries.
+
+### Changed
+
+- **Scoped selector request:** When the first AI suggestion matches multiple elements, the second request now uses `get_fix_scoped_sync` (minimal prompt, optional short DOM snippet) instead of a full second `get_fix_sync`, reducing latency and token usage.
+
+---
+
+## [0.1.28] - 2026-02-13
+
+### Added
+- **Observability Enhancement**: Added Prometheus metrics support for tracking self-healing success rates.
+- **Advanced Proxy Chaining**: Improved support for nested and chained Playwright locators.
+- **Performance baseline**: README now includes a “Performance & efficiency” section with before-evidence (latency, Ollama call count, observability) and placeholders for after-evidence post-improvements.
+
+### Fixed
+- **Chained Locator Retries**: Fixed an issue where healing was not correctly propagated through chained locator actions.
 
 ## [0.1.14] - 2026-02-11
 

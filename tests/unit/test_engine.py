@@ -169,12 +169,149 @@ class TestErrorHandling:
     def test_cache_hit_returns_immediately(self, healix_instance):
         """Verify that a cache hit skips the AI call entirely."""
         healix_instance.cache["chromium::#broken"] = "#fixed"
-        
         import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             healix_instance.get_fix("#broken", "<html></html>", browser="chromium")
         )
-        
         assert result["selector"] == "#fixed"
         assert result["conf"] == 1.0
         assert result["explanation"] == "Cache hit"
+
+
+class TestGetFixSync:
+    """Tests for get_fix_sync() with mocked HTTP."""
+
+    def test_returns_fix_on_valid_json_response(self, healix_instance):
+        with patch.object(healix_instance, "_load_cache", return_value={}):
+            with patch("healix.engine.requests.post") as mock_post:
+                mock_post.return_value.json.return_value = {
+                    "response": '{"selector": "#submit-btn", "explanation": "Submit button", "conf": 0.9}'
+                }
+                mock_post.return_value.raise_for_status = MagicMock()
+                result = healix_instance.get_fix_sync(
+                    "#broken", "<html><button id=\"submit-btn\">Submit</button></html>",
+                    browser="chromium", error_msg="not found"
+                )
+                assert result["selector"] == "#submit-btn"
+                assert result["conf"] == 0.9
+                assert result["explanation"] == "Submit button"
+
+    def test_returns_none_on_empty_response(self, healix_instance):
+        with patch("healix.engine.requests.post") as mock_post:
+            mock_post.return_value.json.return_value = {"response": ""}
+            mock_post.return_value.raise_for_status = MagicMock()
+            result = healix_instance.get_fix_sync("#x", "<html></html>", browser="chromium", error_msg="err")
+            assert result is None
+
+    def test_returns_none_on_invalid_json(self, healix_instance):
+        with patch("healix.engine.requests.post") as mock_post:
+            mock_post.return_value.json.return_value = {"response": "not valid json"}
+            mock_post.return_value.raise_for_status = MagicMock()
+            result = healix_instance.get_fix_sync("#x", "<html></html>", browser="chromium", error_msg="err")
+            assert result is None
+
+    def test_replaces_contains_with_playwright_text(self, healix_instance):
+        with patch("healix.engine.requests.post") as mock_post:
+            mock_post.return_value.json.return_value = {
+                "response": '{"selector": "button:contains(\\"Submit\\")", "explanation": "x", "conf": 0.8}'
+            }
+            mock_post.return_value.raise_for_status = MagicMock()
+            result = healix_instance.get_fix_sync("#x", "<html></html>", browser="chromium", error_msg="e")
+            assert "text=Submit" in result["selector"]
+            assert ":contains(" not in result["selector"]
+
+    def test_defaults_conf_when_missing(self, healix_instance):
+        with patch("healix.engine.requests.post") as mock_post:
+            mock_post.return_value.json.return_value = {
+                "response": '{"selector": "#ok", "explanation": "y"}'
+            }
+            mock_post.return_value.raise_for_status = MagicMock()
+            result = healix_instance.get_fix_sync("#x", "<html></html>", browser="chromium", error_msg="e")
+            assert result["conf"] == 0.7
+
+    def test_returns_none_on_http_exception(self, healix_instance):
+        with patch("healix.engine.requests.post", side_effect=Exception("timeout")):
+            result = healix_instance.get_fix_sync("#x", "<html></html>", browser="chromium", error_msg="e")
+            assert result is None
+
+
+class TestSaveCacheContextMode:
+    """Test _save_cache with context_used stores CTX-prefixed in cache."""
+
+    def test_context_used_prepends_ctx(self, healix_instance):
+        healix_instance._save_cache("#old", "#new", browser="chromium", context_used=True)
+        assert healix_instance.cache["chromium::#old"] == "CTX:#new"
+        with open(healix_instance.cache_file) as f:
+            assert json.load(f)["chromium::#old"] == "CTX:#new"
+
+
+class TestHealixPatch:
+    """Test Healix.patch and HealixPageProxy."""
+
+    def test_patch_returns_proxy(self):
+        with patch.object(Healix, "_check_ollama"):
+            mock_page = MagicMock()
+            proxy = Healix.patch(mock_page)
+            from healix.engine import HealixPageProxy
+            assert type(proxy).__name__ == "HealixPageProxy"
+            assert proxy._page is mock_page
+
+    def test_locator_uses_cache_and_returns_smart_proxy(self, healix_instance):
+        with patch.object(Healix, "_check_ollama"):
+            from healix.engine import HealixPageProxy, SmartLocatorProxy, _get_healix
+            # Reset global so fixture's cache is used
+            import healix.engine as eng
+            eng._hx = healix_instance
+            healix_instance._healed_selectors["#foo"] = "#footer a"
+            mock_page = MagicMock()
+            mock_loc = MagicMock()
+            mock_page.locator.return_value = mock_loc
+            proxy = HealixPageProxy(mock_page)
+            out = proxy.locator("#foo")
+            assert isinstance(out, SmartLocatorProxy)
+            mock_page.locator.assert_called_once_with("#footer a", **{})
+
+
+class TestInstallBrowsers:
+    """Test install_browsers() success and failure paths."""
+
+    def test_install_browsers_success(self):
+        from healix.engine import install_browsers
+        with patch("healix.engine.subprocess.run", return_value=MagicMock(returncode=0)):
+            install_browsers()  # no raise
+
+    def test_install_browsers_called_process_error(self):
+        from healix.engine import install_browsers, BrowserNotInstalledError
+        with patch("healix.engine.subprocess.run", side_effect=__import__("subprocess").CalledProcessError(1, "cmd", stderr="err")):
+            with pytest.raises(BrowserNotInstalledError, match="could not be installed"):
+                install_browsers()
+
+    def test_install_browsers_file_not_found(self):
+        from healix.engine import install_browsers, BrowserNotInstalledError
+        with patch("healix.engine.subprocess.run", side_effect=FileNotFoundError()):
+            with pytest.raises(BrowserNotInstalledError, match="Playwright not found"):
+                install_browsers()
+
+
+class TestMain:
+    """Test main() CLI entry point."""
+
+    def test_main_no_args(self, capsys):
+        from healix.engine import main
+        with patch("healix.engine.sys.argv", ["healix"]):
+            main()
+        out, _ = capsys.readouterr()
+        assert "Usage" in out or "healix" in out.lower()
+
+    def test_main_file_not_found(self, capsys):
+        from healix.engine import main
+        with patch("healix.engine.sys.argv", ["healix", "/nonexistent_file_12345.py"]):
+            main()
+        out, _ = capsys.readouterr()
+        assert "not found" in out or "Error" in out
+
+    def test_main_skips_run_when_install_fails(self):
+        from healix.engine import main, BrowserNotInstalledError
+        with patch("healix.engine.sys.argv", ["healix", "nonexistent.py"]):
+            with patch("healix.engine.install_browsers", side_effect=BrowserNotInstalledError("x")):
+                main()  # should return without running subprocess
