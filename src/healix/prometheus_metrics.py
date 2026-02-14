@@ -6,7 +6,6 @@ or PUSHGATEWAY_URL), Healix will push heal metrics so you can see them in Grafan
 Otherwise, all functions no-op.
 """
 import os
-from datetime import datetime
 from typing import Any, List
 
 try:
@@ -94,9 +93,8 @@ def push_healix_metrics(entries: List[Any]) -> tuple:
                 cache_counter.labels(test=test, cache="hit").inc(1)
             elif cache_hit is False:
                 cache_counter.labels(test=test, cache="miss").inc(1)
-        # Group by run timestamp so each pytest run is a separate series
-        grouping_key = {"run": datetime.utcnow().strftime("%Y%m%d%H%M%S")}
-        push_to_gateway(url, job="healix", registry=registry, grouping_key=grouping_key)
+        # Single group per job so dashboard shows "this run" and session cleanup can clear it
+        push_to_gateway(url, job="healix", registry=registry, grouping_key=None)
         return (len(entries), None)
     except Exception as err:
         return (0, str(err))
