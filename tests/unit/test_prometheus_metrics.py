@@ -55,12 +55,13 @@ class TestPushHealixMetrics:
         assert "not configured" in err or "HEALIX_PUSHGATEWAY" in err
 
     def test_push_success_when_configured(self):
+        try:
+            import healix.prometheus_metrics as _pm
+            getattr(_pm, "push_to_gateway")  # only present when prometheus_client is installed
+        except (ImportError, AttributeError):
+            pytest.skip("prometheus_client not installed")
         with pytest.MonkeyPatch.context() as m:
             m.setenv("HEALIX_PUSHGATEWAY_URL", "http://localhost:9091")
-            try:
-                from prometheus_client import push_to_gateway
-            except ImportError:
-                pytest.skip("prometheus_client not installed")
             with pytest.MonkeyPatch.context() as m2:
                 m2.setattr("healix.prometheus_metrics.push_to_gateway", lambda *a, **k: None)
                 entries = [
@@ -73,15 +74,19 @@ class TestPushHealixMetrics:
                 assert err is None
 
     def test_push_failure_returns_error_message(self):
+        try:
+            import healix.prometheus_metrics as _pm
+            getattr(_pm, "push_to_gateway")
+        except (ImportError, AttributeError):
+            pytest.skip("prometheus_client not installed")
+
+        def raise_connection_refused(*a, **k):
+            raise Exception("connection refused")
+
         with pytest.MonkeyPatch.context() as m:
             m.setenv("HEALIX_PUSHGATEWAY_URL", "http://localhost:9091")
-            try:
-                import healix.prometheus_metrics as pm
-            except ImportError:
-                pytest.skip("prometheus_client not installed")
             with pytest.MonkeyPatch.context() as m2:
-                m2.setattr(pm, "_PROMETHEUS_AVAILABLE", True)
-                m2.setattr(pm, "push_to_gateway", lambda *a, **k: (_ for _ in ()).throw(Exception("connection refused")))
+                m2.setattr("healix.prometheus_metrics.push_to_gateway", raise_connection_refused)
                 n, err = push_healix_metrics([{"test": "t", "retry_passed": True}])
                 assert n == 0
                 assert "connection refused" in err
