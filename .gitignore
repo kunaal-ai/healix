@@ -123,6 +123,7 @@ dmypy.json
 .pyre/
 
 # Healix specific
+.healix/
 healix_cache.json
 healix_data/
 data/

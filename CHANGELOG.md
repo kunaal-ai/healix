@@ -20,7 +20,7 @@ I keep this list in the repo so I can pick items off one by one. When I ship one
 
 ---
 
-## [0.1.29] - (performance & efficiency)
+## [0.1.29] - 2026-03-21
 
 ### Performance & efficiency (implemented)
 
@@ -41,6 +41,16 @@ I keep this list in the repo so I can pick items off one by one. When I ship one
 ### Changed
 
 - **Scoped selector request:** When the first AI suggestion matches multiple elements, the second request now uses `get_fix_scoped_sync` (minimal prompt, optional short DOM snippet) instead of a full second `get_fix_sync`, reducing latency and token usage.
+- **Deprecation fix:** Replaced `datetime.utcnow()` with `datetime.now(timezone.utc)` in pytest plugin.
+
+### Fixed
+
+- **Unit tests:** Added pytest-asyncio for async test support; fixed test_engine_core to mock Ollama and use temp paths; fixed test_exception_interact_refines_multiple_matches to mock get_fix_scoped_sync.
+
+### Added
+
+- **Dependencies:** pytest-asyncio for async unit tests.
+- **.gitignore:** Added `.healix/` for runtime cache and reports.
 
 ---
 

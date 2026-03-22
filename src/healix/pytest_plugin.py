@@ -9,7 +9,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -259,7 +259,7 @@ def pytest_exception_interact(report, node):
                 "retry_passed": None,
                 "confidence": fix.get("conf"),
                 "explanation": (fix.get("explanation") or "")[:500],
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "duration_seconds": round(duration_seconds, 3),
                 "cache_hit": cache_hit,
             })
@@ -335,7 +335,7 @@ def _log_review(item, file_info, broken, suggested, conf, explanation):
             except Exception:
                 entries = []
         entries.append({
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "test": getattr(item, "name", ""),
             "file": file_info.get("file"),
             "line": file_info.get("line"),
